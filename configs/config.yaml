@@ -1,0 +1,30 @@
+data:
+  root: dataset/
+  batch_size: 8
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+model:
+  model_type: gnn  # 'gnn' or 'simple'
+  in_channels: 80
+  hidden_channels: 128
+  num_layers: 3
+  dropout: 0.2
+  conv_type: gcn  # 'gcn', 'gat', or 'gin'
+
+training:
+  num_epochs: 100
+  learning_rate: 0.001
+  weight_decay: 1.0e-05
+  scheduler: reduce_on_plateau
+  patience: 10
+  min_lr: 1.0e-06
+
+experiment:
+  name: atom_exposure_gnn
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42
