@@ -1,5 +1,5 @@
 data:
-  root: dataset/
+  root: .  # Root is project directory; dataset_fixed.py adds 'dataset/' subdirectory
   batch_size: 8
   num_workers: 4
   train_split: 0.8
@@ -8,22 +8,24 @@ data:
 
 model:
   model_type: gnn  # 'gnn' or 'simple'
-  in_channels: 80
-  hidden_channels: 128
-  num_layers: 3
-  dropout: 0.2
-  conv_type: gcn  # 'gcn', 'gat', or 'gin'
+  in_channels: 100  # Updated: 34 numerical + 58 categorical + 8 geometric
+  hidden_channels: 96  # Middle ground between 64 and 128
+  num_layers: 2  # Keep at 2 for simplicity
+  dropout: 0.4  # Moderate regularization (between 0.2 and 0.6)
+  conv_type: gat  # Exp 3.4: Testing GAT with moderate regularization
 
 training:
-  num_epochs: 100
+  num_epochs: 50  # Full training with early stopping
   learning_rate: 0.001
-  weight_decay: 1.0e-05
+  weight_decay: 1.0e-04  # Moderate regularization (10x baseline, not 50x)
   scheduler: reduce_on_plateau
-  patience: 10
+  patience: 10  # For learning rate reduction
+  early_stopping_patience: 15  # Increased patience for stability
   min_lr: 1.0e-06
+  gradient_clip: 1.0  # Prevent gradient explosion
 
 experiment:
-  name: atom_exposure_gnn
+  name: gat_moderate_reg  # Exp 3.4: GAT with moderate regularization
   checkpoint_dir: experiments/checkpoints
   log_dir: experiments/logs
   save_best: true

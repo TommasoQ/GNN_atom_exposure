@@ -28,19 +28,24 @@ class Trainer:
         optimizer: torch.optim.Optimizer,
         criterion: nn.Module,
         device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
-        checkpoint_dir: str = 'experiments/checkpoints'
+        checkpoint_dir: str = 'experiments/checkpoints',
+        gradient_clip: Optional[float] = None,
+        early_stopping_patience: Optional[int] = None
     ):
         self.model = model.to(device)
         self.optimizer = optimizer
         self.criterion = criterion
         self.device = device
         self.checkpoint_dir = checkpoint_dir
+        self.gradient_clip = gradient_clip
+        self.early_stopping_patience = early_stopping_patience
 
         os.makedirs(checkpoint_dir, exist_ok=True)
 
         self.train_losses = []
         self.val_losses = []
         self.best_val_loss = float('inf')
+        self.epochs_without_improvement = 0
 
     def train_epoch(self, train_loader: DataLoader) -> float:
         """
@@ -69,6 +74,11 @@ class Trainer:
 
             # Backward pass
             loss.backward()
+
+            # Gradient clipping if enabled
+            if self.gradient_clip is not None:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
+
             self.optimizer.step()
 
             # Update metrics
@@ -164,15 +174,26 @@ class Trainer:
             print(f"Train Loss: {train_loss:.4f}")
             print(f"Val Loss: {val_metrics['loss']:.4f}, MAE: {val_metrics['mae']:.4f}, RMSE: {val_metrics['rmse']:.4f}")
 
-            # Save best model
+            # Save best model and check early stopping
             if save_best and val_metrics['loss'] < self.best_val_loss:
                 self.best_val_loss = val_metrics['loss']
+                self.epochs_without_improvement = 0
                 self.save_checkpoint(
                     os.path.join(self.checkpoint_dir, 'best_model.pt'),
                     epoch,
                     val_metrics
                 )
-                print(f"Saved best model (val_loss: {self.best_val_loss:.4f})")
+                print(f"✓ New best model saved (val_loss: {self.best_val_loss:.4f})")
+            else:
+                self.epochs_without_improvement += 1
+
+            # Early stopping check
+            if self.early_stopping_patience is not None:
+                if self.epochs_without_improvement >= self.early_stopping_patience:
+                    print(f"\n⚠ Early stopping triggered after {epoch + 1} epochs")
+                    print(f"   No improvement for {self.early_stopping_patience} consecutive epochs")
+                    print(f"   Best validation loss: {self.best_val_loss:.4f}")
+                    break
 
         print("\nTraining completed!")
 
@@ -189,7 +210,7 @@ class Trainer:
 
     def load_checkpoint(self, path: str):
         """Load model checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.train_losses = checkpoint['train_losses']

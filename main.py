@@ -9,7 +9,7 @@ from torch_geometric.loader import DataLoader
 import numpy as np
 import random
 
-from src.data.dataset import ProteinAtomDataset
+from src.data.dataset_fixed import ProteinAtomDataset
 from src.models.gnn import create_model
 from src.training.train import Trainer
 from src.training.evaluate import evaluate_model, print_metrics
@@ -109,7 +109,9 @@ def main(args):
         optimizer=optimizer,
         criterion=criterion,
         device=device,
-        checkpoint_dir=config.experiment.checkpoint_dir
+        checkpoint_dir=config.experiment.checkpoint_dir,
+        gradient_clip=getattr(config.training, 'gradient_clip', None),
+        early_stopping_patience=getattr(config.training, 'early_stopping_patience', None)
     )
 
     # Training
