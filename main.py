@@ -58,42 +58,13 @@ def main(args):
     print("GNN PROTEIN ATOM EXPOSURE PREDICTION")
     print("="*60)
 
-    # Load datasets
-    print("\nLoading datasets...")
-    train_dataset = ProteinAtomDataset(root=config.data.root, split='train')
-    val_dataset = ProteinAtomDataset(root=config.data.root, split='val')
-    test_dataset = ProteinAtomDataset(root=config.data.root, split='test')
-
-    print(f"  Train: {len(train_dataset)} proteins")
-    print(f"  Val:   {len(val_dataset)} proteins")
-    print(f"  Test:  {len(test_dataset)} proteins")
-
-    # Create data loaders
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=config.data.batch_size,
-        shuffle=True,
-        num_workers=config.data.num_workers
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=config.data.batch_size,
-        shuffle=False,
-        num_workers=config.data.num_workers
-    )
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=config.data.batch_size,
-        shuffle=False,
-        num_workers=config.data.num_workers
-    )
-
     # Create model
     print("\nCreating model...")
     model = create_model(config.model.to_dict())
     num_params = sum(p.numel() for p in model.parameters())
     print(f"  Model: {config.model.model_type.upper()}")
     print(f"  Parameters: {num_params:,}")
+    model.to(device)
 
     # Create optimizer and loss
     optimizer = torch.optim.Adam(
@@ -117,6 +88,24 @@ def main(args):
     # Training
     if not args.eval_only:
         print("\nStarting training...")
+        print("\nLoading training and validation datasets...")
+        train_dataset = ProteinAtomDataset(root=config.data.root, split='train')
+        val_dataset = ProteinAtomDataset(root=config.data.root, split='val')
+        print(f"  Train: {len(train_dataset)} proteins")
+        print(f"  Val:   {len(val_dataset)} proteins")
+
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=config.data.batch_size,
+            shuffle=True,
+            num_workers=config.data.num_workers
+        )
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=config.data.batch_size,
+            shuffle=False,
+            num_workers=config.data.num_workers
+        )
         print("-" * 60)
         trainer.train(
             train_loader=train_loader,
@@ -141,30 +130,39 @@ def main(args):
         trainer.load_checkpoint(os.path.join(config.experiment.checkpoint_dir, 'best_model.pt'))
 
     # Evaluation
+    print("\nLoading test dataset...")
+    test_dataset = ProteinAtomDataset(root=config.data.root, split='test')
+    print(f"  Test:  {len(test_dataset)} proteins")
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=config.data.batch_size,
+        shuffle=False,
+        num_workers=config.data.num_workers
+    )
+
     print("\nEvaluating on test set...")
     print("-" * 60)
-    test_metrics = evaluate_model(trainer.model, test_loader, device)
+    # evaluate_model now returns metrics and predictions to avoid a second pass
+    test_metrics, y_true, y_pred = evaluate_model(trainer.model, test_loader, device)
     print_metrics(test_metrics)
 
     # Generate predictions and visualizations
     if args.visualize:
-        from src.training.evaluate import predict
-
         print("\nGenerating visualizations...")
-        y_pred, y_true = predict(trainer.model, test_loader, device)
 
         # Plot predictions
         plot_predictions(
             y_true,
             y_pred,
-            save_path=os.path.join(config.experiment.log_dir, 'predictions.png')
+            save_path=os.path.join(config.experiment.log_dir, 'predictions_vs_actual.png')
         )
 
         from src.utils.visualization import plot_error_distribution
         plot_error_distribution(
             y_true,
             y_pred,
-            save_path=os.path.join(config.experiment.log_dir, 'error_distribution.png')
+            save_path=os.path.join(config.experiment.log_dir, 'prediction_error_distribution.png')
         )
 
     print("\nDone!")

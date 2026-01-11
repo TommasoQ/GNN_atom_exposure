@@ -82,8 +82,8 @@ class Trainer:
             self.optimizer.step()
 
             # Update metrics
-            total_loss += loss.item() * batch.num_graphs
-            num_samples += batch.num_graphs
+            total_loss += loss.item() * batch.num_nodes
+            num_samples += batch.num_nodes
 
             # Update progress bar
             pbar.set_postfix({'loss': loss.item()})
@@ -118,8 +118,8 @@ class Trainer:
             # Compute loss
             loss = self.criterion(out, batch.y)
 
-            total_loss += loss.item() * batch.num_graphs
-            num_samples += batch.num_graphs
+            total_loss += loss.item() * batch.num_nodes
+            num_samples += batch.num_nodes
 
             # Store predictions and targets
             all_preds.append(out.cpu().numpy())

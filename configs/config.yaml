@@ -1,5 +1,5 @@
 data:
-  root: .  # Root is project directory; dataset_fixed.py adds 'dataset/' subdirectory
+  root: dataset  # Dataset directory with processed/ and raw/ subdirectories
   batch_size: 8
   num_workers: 4
   train_split: 0.8
@@ -8,16 +8,16 @@ data:
 
 model:
   model_type: gnn  # 'gnn' or 'simple'
-  in_channels: 100  # Updated: 34 numerical + 58 categorical + 8 geometric
-  hidden_channels: 96  # Middle ground between 64 and 128
-  num_layers: 2  # Keep at 2 for simplicity
-  dropout: 0.4  # Moderate regularization (between 0.2 and 0.6)
-  conv_type: gat  # Exp 3.4: Testing GAT with moderate regularization
+  in_channels: 88  # REDUCED: 24 numerical + 57 categorical (31+5+21) + 7 geometric
+  hidden_channels: 96  # Back to 96 (simpler model)
+  num_layers: 3  # Back to 3 layers (4L gave only +0.5%)
+  dropout: 0.35  # Exp 4.2: Slightly higher dropout
+  conv_type: gin  # GIN (best architecture from Phase 3)
 
 training:
   num_epochs: 50  # Full training with early stopping
-  learning_rate: 0.001
-  weight_decay: 1.0e-04  # Moderate regularization (10x baseline, not 50x)
+  learning_rate: 0.0005  # Exp 4.2: Lower LR for finer convergence
+  weight_decay: 1.0e-04  # Moderate regularization
   scheduler: reduce_on_plateau
   patience: 10  # For learning rate reduction
   early_stopping_patience: 15  # Increased patience for stability
@@ -25,7 +25,7 @@ training:
   gradient_clip: 1.0  # Prevent gradient explosion
 
 experiment:
-  name: gat_moderate_reg  # Exp 3.4: GAT with moderate regularization
+  name: gin_lowlr_highdropout  # Exp 4.2: Lower LR (0.0005), higher dropout (0.35)
   checkpoint_dir: experiments/checkpoints
   log_dir: experiments/logs
   save_best: true

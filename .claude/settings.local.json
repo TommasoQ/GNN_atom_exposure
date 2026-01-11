@@ -18,7 +18,11 @@
       "Bash(if [ -f experiments/progress/training_test.log ])",
       "Bash(then tail -50 experiments/progress/training_test.log)",
       "Bash(else echo \"Log file not created yet\")",
-      "Bash(fi)"
+      "Bash(fi)",
+      "Bash(gh pr list:*)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Edoardo\\GNN_protein_exposure\\GNN_atom_exposure\\experiments"
     ]
   }
 }

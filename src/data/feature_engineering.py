@@ -15,27 +15,27 @@ import pickle
 # FEATURE SELECTION
 # ============================================================================
 
-# Based on Phase 1 correlation analysis, these are the selected features
+# Based on Phase 1 correlation analysis + Phase 3 feature reduction (14 features removed)
 SELECTED_NUMERICAL_FEATURES = [
     # Core features (high correlation)
     'b_factor',                      # 0.63 correlation - strongest predictor!
     'hbond_donors',
     'hbond_acceptors',
 
-    # Meiler descriptors (keep most relevant)
+    # Meiler descriptors (keep most relevant, dropped dim_6)
     'meiler:dim_1',
     'meiler:dim_4',                  # -0.41 correlation
     'meiler:dim_5',
-    'meiler:dim_6',
     'meiler:dim_7',
-    # Skip meiler:dim_2, dim_3 (weak correlation)
+    # Removed: meiler:dim_6 (r=0.83 with coilroux, weak target correlation)
 
-    # Top hydrophobicity scales (diverse, non-redundant)
-    'expasy:hphob_eisenberg',        # -0.45
-    'expasy:hphob_janin',            # -0.42
-    'expasy:hphob_rose',             # -0.42
-    'expasy:hphob_guy',              # +0.47 (different pattern)
-    'expasy:hphob_woods',            # +0.41
+    # Hydrophobicity scales (kept 3 most diverse, dropped janin/chothia/woods)
+    'expasy:hphob_eisenberg',        # -0.45 (most established scale)
+    'expasy:hphob_rose',             # -0.42 (best target correlation)
+    'expasy:hphob_guy',              # +0.47 (different pattern, complementary)
+    # Removed: hphob_janin (r=0.93 with eisenberg)
+    # Removed: hphob_chothia (r=0.90 with eisenberg)
+    # Removed: hphob_woods (r=-0.93 with transmembranetendency)
 
     # Structural propensities (directly relevant)
     'expasy:buriedresidues',         # Directly relevant!
@@ -43,31 +43,28 @@ SELECTED_NUMERICAL_FEATURES = [
     'expasy:averageburied',          # Directly relevant!
     'expasy:averageflexibility',
     'expasy:transmembranetendency',  # -0.41
-    'expasy:totalbeta_strand',
-    'expasy:antiparallelbeta_strand',
-    'expasy:parallelbeta_strand',
+    'expasy:totalbeta_strand',       # General beta measure
+    'expasy:parallelbeta_strand',    # Complementary to total
+    # Removed: antiparallelbeta_strand (r=0.95 with totalbeta_strand)
 
     # Polarity and molecular properties
     'expasy:polarityzimmerman',      # +0.35
     'expasy:polaritygrantham',       # +0.39
     'expasy:bulkiness',
-    'expasy:isoelectric_points',
-    'expasy:molecularweight',
-    'expasy:refractivity',
+    'expasy:ratioside',
+    # Removed: isoelectric_points (r=0.91 with meiler:dim_5)
+    # Removed: molecularweight (r=-0.012 target, redundant with residue type)
+    # Removed: refractivity (r=0.92 with molecularweight)
 
-    # Secondary structure propensities
-    'expasy:beta_sheetfasman',
+    # Secondary structure propensities (kept turn features, dropped redundant sheet)
     'expasy:beta_turnfasman',
-    'expasy:beta_sheetroux',
     'expasy:beta_turnroux',
     'expasy:coilroux',
-
-    # Additional features
-    'expasy:hphob_chothia',
-    'expasy:ratioside',
+    # Removed: beta_sheetfasman (r=0.95 with totalbeta_strand)
+    # Removed: beta_sheetroux (r=0.97 with totalbeta_strand)
 ]
 
-# Total: 35 numerical features (reduced from 74)
+# Total: 24 numerical features (reduced from 34)
 
 
 # ============================================================================
@@ -80,10 +77,10 @@ STANDARD_ATOM_TYPES = ['N', 'CA', 'C', 'O', 'CB', 'CG', 'CD', 'CD1', 'CD2',
                        'ND1', 'ND2', 'NE', 'NE1', 'NE2', 'NZ', 'OG', 'OG1',
                        'SD', 'SG', 'CE1', 'CE2', 'CE3', 'OTHER']
 
-# Standard elements in proteins
-STANDARD_ELEMENTS = ['C', 'N', 'O', 'S', 'P', 'OTHER']
+# Standard elements in proteins (removed P - virtually no phosphorus in dataset)
+STANDARD_ELEMENTS = ['C', 'N', 'O', 'S', 'OTHER']
 
-# Standard amino acids (20 + unknown)
+# Standard amino acids (20 standard + OTHER catchall - OTHER has no data but needed for encoding)
 STANDARD_RESIDUES = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY',
                      'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER',
                      'THR', 'TRP', 'TYR', 'VAL', 'OTHER']
@@ -177,8 +174,8 @@ def compute_geometric_features(coords: np.ndarray,
     """
     n_atoms = coords.shape[0]
 
-    # Initialize features array (8 features total)
-    geom_features = np.zeros((n_atoms, 8), dtype=np.float32)
+    # Initialize features array (7 features total - removed duplicate geom_nearest_dist)
+    geom_features = np.zeros((n_atoms, 7), dtype=np.float32)
 
     # Compute protein center of mass
     center_of_mass = coords.mean(axis=0)
@@ -213,19 +210,17 @@ def compute_geometric_features(coords: np.ndarray,
         # Feature 4: Std of distances
         geom_features[i, 3] = distances.std() if len(distances) > 1 else 0.0
 
-        # Feature 5: Distance to nearest neighbor
-        geom_features[i, 4] = np.sort(distances)[0] if len(distances) > 0 else 0.0
-
-        # Feature 6: Distance to 3rd nearest neighbor (if exists)
+        # Feature 5: Distance to 3rd nearest neighbor (if exists)
+        # NOTE: Removed geom_nearest_dist (Feature 5) - perfect duplicate of geom_min_dist (r=1.0)
         sorted_dist = np.sort(distances)
-        geom_features[i, 5] = sorted_dist[min(2, len(sorted_dist)-1)]
+        geom_features[i, 4] = sorted_dist[min(2, len(sorted_dist)-1)]
 
-        # Feature 7: Distance to protein center of mass
-        geom_features[i, 6] = np.linalg.norm(coords[i] - center_of_mass)
+        # Feature 6: Distance to protein center of mass
+        geom_features[i, 5] = np.linalg.norm(coords[i] - center_of_mass)
 
-        # Feature 8: Normalized radial position (0 = center, 1 = surface)
+        # Feature 7: Normalized radial position (0 = center, 1 = surface)
         max_distance_from_center = np.linalg.norm(coords - center_of_mass, axis=1).max()
-        geom_features[i, 7] = geom_features[i, 6] / (max_distance_from_center + 1e-8)
+        geom_features[i, 6] = geom_features[i, 5] / (max_distance_from_center + 1e-8)
 
     return geom_features
 
@@ -357,7 +352,7 @@ def extract_all_features(nodes_df: pd.DataFrame,
     )
     geometric_names = [
         'geom_mean_dist', 'geom_min_dist', 'geom_max_dist', 'geom_std_dist',
-        'geom_nearest_dist', 'geom_3rd_nearest_dist',
+        'geom_3rd_nearest_dist',  # Removed geom_nearest_dist (duplicate of geom_min_dist)
         'geom_dist_to_center', 'geom_radial_position'
     ]
     feature_names = numerical_names + categorical_names + geometric_names
@@ -377,12 +372,12 @@ def get_feature_dimensions() -> Dict[str, int]:
         'atom_types': len(STANDARD_ATOM_TYPES),
         'elements': len(STANDARD_ELEMENTS),
         'residues': len(STANDARD_RESIDUES),
-        'geometric': 8,
-        'total': (len(SELECTED_NUMERICAL_FEATURES) +
-                 len(STANDARD_ATOM_TYPES) +
-                 len(STANDARD_ELEMENTS) +
-                 len(STANDARD_RESIDUES) +
-                 8)
+        'geometric': 7,  # Reduced from 8 (removed geom_nearest_dist duplicate)
+        'total': (len(SELECTED_NUMERICAL_FEATURES) +  # 24
+                 len(STANDARD_ATOM_TYPES) +           # 31
+                 len(STANDARD_ELEMENTS) +             # 5 (includes OTHER)
+                 len(STANDARD_RESIDUES) +             # 21 (includes OTHER)
+                 7)                                   # = 88 total
     }
 
 

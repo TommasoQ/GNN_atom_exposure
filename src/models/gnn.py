@@ -4,7 +4,7 @@ Graph Neural Network Models for Atom Exposure Prediction
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, GATConv, GINConv, global_mean_pool
+from torch_geometric.nn import GCNConv, GATConv, GINConv, GINEConv, global_mean_pool
 from torch_geometric.nn import BatchNorm, LayerNorm
 
 
@@ -17,7 +17,8 @@ class AtomExposureGNN(nn.Module):
         hidden_channels (int): Number of hidden units
         num_layers (int): Number of GNN layers
         dropout (float): Dropout rate
-        conv_type (str): Type of graph convolution ('gcn', 'gat', 'gin')
+        conv_type (str): Type of graph convolution ('gcn', 'gat', 'gin', 'gine')
+        edge_dim (int): Edge feature dimension (for gat, gine)
     """
 
     def __init__(
@@ -26,7 +27,8 @@ class AtomExposureGNN(nn.Module):
         hidden_channels: int = 128,
         num_layers: int = 3,
         dropout: float = 0.2,
-        conv_type: str = 'gcn'
+        conv_type: str = 'gcn',
+        edge_dim: int = 1
     ):
         super().__init__()
 
@@ -35,6 +37,7 @@ class AtomExposureGNN(nn.Module):
         self.num_layers = num_layers
         self.dropout = dropout
         self.conv_type = conv_type
+        self.edge_dim = edge_dim
 
         # Input projection
         self.input_proj = nn.Linear(in_channels, hidden_channels)
@@ -51,7 +54,8 @@ class AtomExposureGNN(nn.Module):
                     hidden_channels,
                     hidden_channels // 4,
                     heads=4,
-                    dropout=dropout
+                    dropout=dropout,
+                    edge_dim=edge_dim
                 )
             elif conv_type == 'gin':
                 mlp = nn.Sequential(
@@ -60,6 +64,14 @@ class AtomExposureGNN(nn.Module):
                     nn.Linear(hidden_channels, hidden_channels)
                 )
                 conv = GINConv(mlp)
+            elif conv_type == 'gine':
+                # GIN with Edge features - incorporates edge information
+                mlp = nn.Sequential(
+                    nn.Linear(hidden_channels, hidden_channels),
+                    nn.ReLU(),
+                    nn.Linear(hidden_channels, hidden_channels)
+                )
+                conv = GINEConv(mlp, edge_dim=edge_dim)
             else:
                 raise ValueError(f"Unknown conv_type: {conv_type}")
 
@@ -99,9 +111,11 @@ class AtomExposureGNN(nn.Module):
             if self.conv_type == 'gcn':
                 x = conv(x, edge_index)
             elif self.conv_type == 'gat':
-                x = conv(x, edge_index)
+                x = conv(x, edge_index, edge_attr=edge_attr)
             elif self.conv_type == 'gin':
                 x = conv(x, edge_index)
+            elif self.conv_type == 'gine':
+                x = conv(x, edge_index, edge_attr=edge_attr)
 
             # Batch normalization
             x = bn(x)

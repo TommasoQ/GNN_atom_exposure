@@ -46,7 +46,12 @@ class ProteinAtomDataset(Dataset):
         transform (callable, optional): Transform to apply to each graph
         pre_transform (callable, optional): Transform to apply before saving
         pre_filter (callable, optional): Filter to apply before saving
+        verbose (bool): Whether to print detailed loading info (default: True for train, False otherwise)
     """
+
+    # Class-level cache to avoid reloading depth_indexes for each split
+    _depth_indexes_cache = None
+    _dataset_info_printed = False
 
     def __init__(
         self,
@@ -63,50 +68,39 @@ class ProteinAtomDataset(Dataset):
         self.normalize_features = normalize_features
 
         # Load protein list
-        protein_csv_path = os.path.join(root, 'dataset', 'protein_sample_5000.csv')
+        protein_csv_path = os.path.join(root, 'protein_sample_5000.csv')
         self.protein_df = pd.read_csv(protein_csv_path)
 
-        # FIX 1: Load depth_indexes (use pre-converted dict version for speed)
-        depth_dict_path = os.path.join(root, 'dataset', 'depth_indexes_dict.pkl')
-        depth_df_path = os.path.join(root, 'dataset', 'depth_indexes.pkl')
+        # FIX 1: Load depth_indexes (use class-level cache to avoid reloading)
+        if ProteinAtomDataset._depth_indexes_cache is None:
+            depth_dict_path = os.path.join(root, 'depth_indexes_dict.pkl')
+            depth_df_path = os.path.join(root, 'depth_indexes.pkl')
 
-        # Try to load pre-converted dict version first (much faster!)
-        if os.path.exists(depth_dict_path):
-            print(f"Loading pre-converted depth_indexes dict...")
-            with open(depth_dict_path, 'rb') as f:
-                self.depth_indexes = pickle.load(f)
-            print(f"  Loaded {len(self.depth_indexes)} proteins")
-        else:
-            # Fallback: load DataFrame and convert (slow)
-            print(f"WARNING: depth_indexes_dict.pkl not found, converting from DataFrame (slow)...")
-            print(f"  Run: python experiments/progress/preprocess_depth_indexes.py")
-            with open(depth_df_path, 'rb') as f:
-                depth_indexes_df = pickle.load(f)
-
-            # Convert DataFrame to nested dict: {pdb_id: {atom_name: depth_value}}
-            print(f"Converting depth_indexes DataFrame to dict...")
-            if isinstance(depth_indexes_df, pd.DataFrame):
-                self.depth_indexes = {}
-                for pdb_id in depth_indexes_df['pdb_id'].unique():
-                    pdb_data = depth_indexes_df[depth_indexes_df['pdb_id'] == pdb_id]
-                    self.depth_indexes[pdb_id] = dict(zip(
-                        pdb_data['atom_name'],
-                        pdb_data['depth_index']
-                    ))
-                print(f"  Converted {len(self.depth_indexes)} proteins")
+            if os.path.exists(depth_dict_path):
+                with open(depth_dict_path, 'rb') as f:
+                    ProteinAtomDataset._depth_indexes_cache = pickle.load(f)
             else:
-                # Already a dict
-                self.depth_indexes = depth_indexes_df
+                # Fallback: load DataFrame and convert (slow)
+                print(f"WARNING: depth_indexes_dict.pkl not found, converting from DataFrame...")
+                with open(depth_df_path, 'rb') as f:
+                    depth_indexes_df = pickle.load(f)
+
+                if isinstance(depth_indexes_df, pd.DataFrame):
+                    ProteinAtomDataset._depth_indexes_cache = {}
+                    for pdb_id in depth_indexes_df['pdb_id'].unique():
+                        pdb_data = depth_indexes_df[depth_indexes_df['pdb_id'] == pdb_id]
+                        ProteinAtomDataset._depth_indexes_cache[pdb_id] = dict(zip(
+                            pdb_data['atom_name'],
+                            pdb_data['depth_index']
+                        ))
+                else:
+                    ProteinAtomDataset._depth_indexes_cache = depth_indexes_df
+
+        self.depth_indexes = ProteinAtomDataset._depth_indexes_cache
 
         # FIX 2: Filter proteins without labels
         all_pdb_ids = self.protein_df['pdb_id'].tolist()
         valid_pdb_ids = [pid for pid in all_pdb_ids if pid in self.depth_indexes]
-        excluded_count = len(all_pdb_ids) - len(valid_pdb_ids)
-
-        print(f"Filtering proteins without labels:")
-        print(f"  Total proteins: {len(all_pdb_ids)}")
-        print(f"  Proteins with labels: {len(valid_pdb_ids)}")
-        print(f"  Proteins excluded: {excluded_count}")
 
         # Filter dataframe to only valid proteins
         self.protein_df = self.protein_df[self.protein_df['pdb_id'].isin(valid_pdb_ids)]
@@ -137,28 +131,22 @@ class ProteinAtomDataset(Dataset):
 
             if split == 'train':
                 # Training: fit normalizer on training data
-                print(f"Fitting normalizer on training data...")
                 self.normalizer = self._fit_normalizer()
                 self.normalizer.save(self.normalizer_path)
-                print(f"  Saved normalizer to {self.normalizer_path}")
             else:
                 # Val/Test: load normalizer from training
                 train_normalizer_path = os.path.join(root, 'normalizer_train.pkl')
                 if os.path.exists(train_normalizer_path):
                     self.normalizer = FeatureNormalizer()
                     self.normalizer.load(train_normalizer_path)
-                    print(f"Loaded normalizer from {train_normalizer_path}")
                 else:
                     print(f"WARNING: No normalizer found at {train_normalizer_path}")
-                    print(f"         Features will not be normalized!")
 
-        # Print feature dimensions
-        dims = get_feature_dimensions()
-        print(f"\nFeature dimensions:")
-        print(f"  Numerical: {dims['numerical']}")
-        print(f"  Categorical: {dims['atom_types'] + dims['elements'] + dims['residues']}")
-        print(f"  Geometric: {dims['geometric']}")
-        print(f"  Total: {dims['total']}")
+        # Print dataset info only once (on first split loaded)
+        if not ProteinAtomDataset._dataset_info_printed:
+            dims = get_feature_dimensions()
+            print(f"Dataset: {len(valid_pdb_ids)} proteins, {dims['total']} features")
+            ProteinAtomDataset._dataset_info_printed = True
 
         super().__init__(root, transform, pre_transform, pre_filter)
 
@@ -180,7 +168,7 @@ class ProteinAtomDataset(Dataset):
 
         for pdb_id in sample_ids:
             try:
-                protein_dir = os.path.join(self.root, 'dataset', 'sadic_data', pdb_id)
+                protein_dir = os.path.join(self.root, 'sadic_data', pdb_id)
                 nodes_path = os.path.join(protein_dir, f'{pdb_id}__graphein__ATOM_nodes.csv')
                 nodes_df = pd.read_csv(nodes_path, index_col=0)
 
@@ -206,16 +194,37 @@ class ProteinAtomDataset(Dataset):
 
     @property
     def processed_file_names(self) -> List[str]:
-        """List of processed file names."""
-        return [f'{pdb_id}.pt' for pdb_id in self.protein_ids]
+        """
+        List of processed file names.
+
+        NOTE: Returns ALL protein files (not split-specific) to enable proper caching.
+        The dataset split (train/val/test) is handled by indexing, not by processing
+        different files.
+        """
+        # Get ALL valid protein IDs (not just this split's)
+        all_pdb_ids = self.protein_df['pdb_id'].tolist()
+        valid_pdb_ids = [pid for pid in all_pdb_ids if pid in self.depth_indexes]
+        return [f'{pdb_id}.pt' for pdb_id in valid_pdb_ids]
 
     def download(self):
         """Download dataset (not needed as data is already present)."""
         pass
 
     def process(self):
-        """Process raw data into PyTorch Geometric Data objects."""
-        for pdb_id in self.protein_ids:
+        """
+        Process raw data into PyTorch Geometric Data objects.
+
+        Processes ALL valid proteins (not just current split) to enable caching.
+        Each split accesses its subset via indexing.
+        """
+        from tqdm import tqdm
+
+        # Get ALL valid protein IDs
+        all_pdb_ids = self.protein_df['pdb_id'].tolist()
+        valid_pdb_ids = [pid for pid in all_pdb_ids if pid in self.depth_indexes]
+
+        print(f"Processing {len(valid_pdb_ids)} proteins (shared across all splits)...")
+        for pdb_id in tqdm(valid_pdb_ids, desc="Processing proteins", unit="protein"):
             data = self._load_protein_graph(pdb_id)
 
             if self.pre_filter is not None and not self.pre_filter(data):
@@ -261,7 +270,7 @@ class ProteinAtomDataset(Dataset):
         Returns:
             Data: PyTorch Geometric Data object with engineered features
         """
-        protein_dir = os.path.join(self.root, 'dataset', 'sadic_data', pdb_id)
+        protein_dir = os.path.join(self.root, 'sadic_data', pdb_id)
 
         # Load nodes
         nodes_df = pd.read_csv(
@@ -314,12 +323,12 @@ class ProteinAtomDataset(Dataset):
             y = []
 
             for atom_name in node_ids:
-                if atom_name in depth_dict:
-                    y.append(depth_dict[atom_name])
-                else:
-                    # This should rarely happen after filtering
-                    print(f"Warning: {atom_name} not in depth_indexes for {pdb_id}")
-                    y.append(0.0)  # Fallback
+                if atom_name not in depth_dict:
+                    raise ValueError(
+                        f"Atom {atom_name} in protein {pdb_id} has no depth label. "
+                        f"This should not happen after filtering. Check data integrity."
+                    )
+                y.append(depth_dict[atom_name])
 
             y = torch.tensor(y, dtype=torch.float)
         else:
@@ -345,7 +354,7 @@ if __name__ == '__main__':
     print("Testing FIXED Dataset Implementation")
     print("="*80)
 
-    dataset = ProteinAtomDataset(root='../../dataset/', split='train')
+    dataset = ProteinAtomDataset(root='../../', split='train')
     print(f"\nDataset size: {len(dataset)}")
 
     print("\nLoading sample...")

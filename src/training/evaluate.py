@@ -16,7 +16,7 @@ def evaluate_model(
     model: nn.Module,
     data_loader: DataLoader,
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
-) -> Dict[str, float]:
+) -> Tuple[Dict[str, float], np.ndarray, np.ndarray]:
     """
     Evaluate model on a dataset.
 
@@ -26,7 +26,7 @@ def evaluate_model(
         device (str): Device to evaluate on
 
     Returns:
-        dict: Dictionary of evaluation metrics
+        tuple: (metrics dict, y_true array, y_pred array)
     """
     model.eval()
     model = model.to(device)
@@ -51,7 +51,7 @@ def evaluate_model(
     # Compute metrics
     metrics = compute_metrics(all_targets, all_preds)
 
-    return metrics
+    return metrics, all_targets, all_preds
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
