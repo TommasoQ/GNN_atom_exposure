@@ -7,7 +7,9 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import os
 import sys
-from typing import Dict, Optional
+import csv
+import json
+from typing import Dict, Optional, List
 import numpy as np
 
 
@@ -23,6 +25,7 @@ class Trainer:
         checkpoint_dir (str): Directory to save checkpoints
         scheduler: Learning rate scheduler (optional)
         scheduler_step_per_epoch (bool): If True, step scheduler after each epoch
+        use_amp (bool): If True, use automatic mixed precision training
     """
 
     def __init__(
@@ -35,7 +38,8 @@ class Trainer:
         gradient_clip: Optional[float] = None,
         early_stopping_patience: Optional[int] = None,
         scheduler=None,
-        scheduler_step_per_epoch: bool = True
+        scheduler_step_per_epoch: bool = True,
+        use_amp: bool = False
     ):
         self.model = model.to(device)
         self.optimizer = optimizer
@@ -46,11 +50,18 @@ class Trainer:
         self.early_stopping_patience = early_stopping_patience
         self.scheduler = scheduler
         self.scheduler_step_per_epoch = scheduler_step_per_epoch
+        self.use_amp = use_amp and device == 'cuda'  # AMP only works on CUDA
+        
+        # Initialize GradScaler for mixed precision
+        self.scaler = torch.amp.GradScaler('cuda') if self.use_amp else None
 
         os.makedirs(checkpoint_dir, exist_ok=True)
 
         self.train_losses = []
         self.val_losses = []
+        self.val_maes = []  # Track validation MAE per epoch
+        self.val_rmses = []  # Track validation RMSE per epoch
+        self.learning_rates = []  # Track LR per epoch
         self.best_val_loss = float('inf')
         self.epochs_without_improvement = 0
 
@@ -72,21 +83,34 @@ class Trainer:
         for batch in pbar:
             batch = batch.to(self.device)
 
-            # Forward pass
             self.optimizer.zero_grad()
-            out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
 
-            # Compute loss
-            loss = self.criterion(out, batch.y)
-
-            # Backward pass
-            loss.backward()
-
-            # Gradient clipping if enabled
-            if self.gradient_clip is not None:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
-
-            self.optimizer.step()
+            if self.use_amp:
+                # Mixed precision training
+                with torch.amp.autocast('cuda'):
+                    out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                    loss = self.criterion(out, batch.y)
+                
+                # Scaled backward pass
+                self.scaler.scale(loss).backward()
+                
+                # Gradient clipping if enabled (must unscale first)
+                if self.gradient_clip is not None:
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
+                
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                # Standard training
+                out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                loss = self.criterion(out, batch.y)
+                loss.backward()
+                
+                if self.gradient_clip is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
+                
+                self.optimizer.step()
 
             # Step scheduler per batch if configured (e.g. OneCycleLR)
             if self.scheduler is not None and not self.scheduler_step_per_epoch:
@@ -123,11 +147,14 @@ class Trainer:
         for batch in tqdm(val_loader, desc='Validation', mininterval=0.5, leave=False, disable=not sys.stdout.isatty(), ncols=80, ascii=True):
             batch = batch.to(self.device)
 
-            # Forward pass
-            out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-
-            # Compute loss
-            loss = self.criterion(out, batch.y)
+            # Forward pass with optional AMP
+            if self.use_amp:
+                with torch.amp.autocast('cuda'):
+                    out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                    loss = self.criterion(out, batch.y)
+            else:
+                out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                loss = self.criterion(out, batch.y)
 
             total_loss += loss.item() * batch.num_nodes
             num_samples += batch.num_nodes
@@ -173,6 +200,10 @@ class Trainer:
         for epoch in range(num_epochs):
             print(f"\nEpoch {epoch + 1}/{num_epochs}")
 
+            # Track current learning rate
+            current_lr = self.optimizer.param_groups[0]['lr']
+            self.learning_rates.append(current_lr)
+
             # Train
             train_loss = self.train_epoch(train_loader)
             self.train_losses.append(train_loss)
@@ -180,6 +211,8 @@ class Trainer:
             # Validate
             val_metrics = self.validate(val_loader)
             self.val_losses.append(val_metrics['loss'])
+            self.val_maes.append(val_metrics['mae'])
+            self.val_rmses.append(val_metrics['rmse'])
 
             # Print metrics
             print(f"Train Loss: {train_loss:.4f}")
@@ -216,6 +249,33 @@ class Trainer:
                         self.scheduler.step()
 
         print("\nTraining completed!")
+        
+        # Export training history to CSV
+        self.export_training_history()
+
+    def export_training_history(self, filename: str = None):
+        """Export training history to CSV for analysis."""
+        if filename is None:
+            filename = os.path.join(self.checkpoint_dir, '..', 'logs', 'training_history.csv')
+        
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        
+        with open(filename, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['epoch', 'train_loss', 'val_loss', 'val_mae', 'val_rmse', 'learning_rate'])
+            
+            for i in range(len(self.train_losses)):
+                lr = self.learning_rates[i] if i < len(self.learning_rates) else None
+                writer.writerow([
+                    i + 1,
+                    f"{self.train_losses[i]:.6f}",
+                    f"{self.val_losses[i]:.6f}",
+                    f"{self.val_maes[i]:.6f}",
+                    f"{self.val_rmses[i]:.6f}",
+                    f"{lr:.8f}" if lr else ""
+                ])
+        
+        print(f"Saved training history to {filename}")
 
     def save_checkpoint(self, path: str, epoch: int, metrics: Dict):
         """Save model checkpoint."""
@@ -225,6 +285,8 @@ class Trainer:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'train_losses': self.train_losses,
             'val_losses': self.val_losses,
+            'val_maes': self.val_maes,
+            'val_rmses': self.val_rmses,
             'metrics': metrics
         }, path)
 
@@ -235,6 +297,8 @@ class Trainer:
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.train_losses = checkpoint['train_losses']
         self.val_losses = checkpoint['val_losses']
+        self.val_maes = checkpoint.get('val_maes', [])
+        self.val_rmses = checkpoint.get('val_rmses', [])
         print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
 
 

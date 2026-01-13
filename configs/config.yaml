@@ -1,6 +1,6 @@
 data:
   root: dataset  # Dataset directory with processed/ and raw/ subdirectories
-  batch_size: 8
+  batch_size: 32  # Increased for faster training (was 8)
   num_workers: 4
   train_split: 0.8
   val_split: 0.1
@@ -15,22 +15,25 @@ model:
   conv_type: gine  # Exp 4.5: GINE with edge features (re-evaluating with improved dropout)
 
 training:
-  num_epochs: 50  # Full training with early stopping
-  learning_rate: 0.0005  # Exp 4.2: Lower LR for finer convergence
+  num_epochs: 150  # Extended training - let early stopping decide
+  learning_rate: 0.0005  # Base LR (used as div_factor base for OneCycle)
   weight_decay: 1.0e-04  # Moderate regularization
-  scheduler: cosine_annealing  # Smooth LR decay for stable late-stage training
+  scheduler: one_cycle  # WINNER from grid search (R²=0.5456)
   patience: 10  # For learning rate reduction (if using reduce_on_plateau)
-  early_stopping_patience: 15  # Increased patience for stability
+  early_stopping_patience: 20  # Room to find true plateau
   min_lr: 1.0e-06
   gradient_clip: 1.0  # Prevent gradient explosion
-  # One Cycle Scheduler Parameters
-  max_lr: 0.001
-  pct_start: 0.3
+  # Performance optimizations
+  use_amp: true  # Automatic Mixed Precision for ~30-50% speedup
+  cudnn_benchmark: true  # Enable cuDNN auto-tuner for faster convolutions
+  # One Cycle Scheduler Parameters (OPTIMAL from grid search)
+  max_lr: 0.003  # Best from grid search
+  warmup_epochs: 15  # Fixed warmup length (pct_start calculated from this)
   div_factor: 25.0
   final_div_factor: 10000.0
 
 experiment:
-  name: gine_cosine_annealing  # Exp 4.6: GINE with cosine annealing LR
+  name: phase5_optimal_50ep
   checkpoint_dir: experiments/checkpoints
   log_dir: experiments/logs
   save_best: true

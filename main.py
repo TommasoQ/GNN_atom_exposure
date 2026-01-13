@@ -17,16 +17,29 @@ from src.utils.config import Config
 from src.utils.visualization import plot_training_curves, plot_predictions
 
 
-def set_seed(seed: int):
-    """Set random seeds for reproducibility."""
+def set_seed(seed: int, cudnn_benchmark: bool = False):
+    """Set random seeds for reproducibility.
+    
+    Args:
+        seed: Random seed value
+        cudnn_benchmark: If True, enable cudnn.benchmark for faster training
+                        (slightly non-deterministic but faster)
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    
+    if cudnn_benchmark:
+        # Faster but slightly non-deterministic
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.benchmark = True
+    else:
+        # Fully deterministic but slower
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 def main(args):
@@ -47,12 +60,20 @@ def main(args):
     if args.lr:
         config.training.learning_rate = args.lr
 
-    # Set random seed
-    set_seed(config.experiment.seed)
+    # Set random seed with optional cudnn benchmark for faster training
+    cudnn_benchmark = getattr(config.training, 'cudnn_benchmark', False)
+    set_seed(config.experiment.seed, cudnn_benchmark=cudnn_benchmark)
+    
+    # Check if AMP is enabled
+    use_amp = getattr(config.training, 'use_amp', False)
 
     # Set device
     device = 'cuda' if torch.cuda.is_available() and not args.cpu else 'cpu'
     print(f"Using device: {device}")
+    if use_amp and device == 'cuda':
+        print("Mixed precision training (AMP): Enabled")
+    if cudnn_benchmark:
+        print("cuDNN benchmark mode: Enabled")
 
     print("\n" + "="*60)
     print("GNN PROTEIN ATOM EXPOSURE PREDICTION")
@@ -112,7 +133,8 @@ def main(args):
         gradient_clip=getattr(config.training, 'gradient_clip', None),
         early_stopping_patience=getattr(config.training, 'early_stopping_patience', None),
         scheduler=scheduler,
-        scheduler_step_per_epoch=not scheduler_step_per_batch
+        scheduler_step_per_epoch=not scheduler_step_per_batch,
+        use_amp=use_amp
     )
 
     # Training
@@ -128,25 +150,34 @@ def main(args):
             train_dataset,
             batch_size=config.data.batch_size,
             shuffle=True,
-            num_workers=config.data.num_workers
+            num_workers=config.data.num_workers,
+            pin_memory=True if device == 'cuda' else False,
+            persistent_workers=True if config.data.num_workers > 0 else False
         )
         val_loader = DataLoader(
             val_dataset,
             batch_size=config.data.batch_size,
             shuffle=False,
-            num_workers=config.data.num_workers
+            num_workers=config.data.num_workers,
+            pin_memory=True if device == 'cuda' else False,
+            persistent_workers=True if config.data.num_workers > 0 else False
         )
 
         # Initialize OneCycleLR if selected (requires steps_per_epoch)
         if scheduler_type == 'one_cycle':
             steps_per_epoch = len(train_loader)
-            print(f"  Initializing OneCycleLR scheduler with {steps_per_epoch} steps per epoch")
+            # Calculate pct_start from warmup_epochs (adaptive to any epoch count)
+            warmup_epochs = getattr(config.training, 'warmup_epochs', 15)
+            pct_start = warmup_epochs / config.training.num_epochs
+            print(f"  Initializing OneCycleLR scheduler:")
+            print(f"    - {steps_per_epoch} steps per epoch")
+            print(f"    - {warmup_epochs} warmup epochs (pct_start={pct_start:.3f})")
             trainer.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                 optimizer,
                 max_lr=getattr(config.training, 'max_lr', 0.001),
                 epochs=config.training.num_epochs,
                 steps_per_epoch=steps_per_epoch,
-                pct_start=getattr(config.training, 'pct_start', 0.3),
+                pct_start=pct_start,
                 div_factor=getattr(config.training, 'div_factor', 25.0),
                 final_div_factor=getattr(config.training, 'final_div_factor', 10000.0)
             )
@@ -183,7 +214,8 @@ def main(args):
         test_dataset,
         batch_size=config.data.batch_size,
         shuffle=False,
-        num_workers=config.data.num_workers
+        num_workers=config.data.num_workers,
+        pin_memory=True if device == 'cuda' else False
     )
 
     print("\nEvaluating on test set...")

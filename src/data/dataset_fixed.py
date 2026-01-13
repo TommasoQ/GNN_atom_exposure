@@ -102,6 +102,18 @@ class ProteinAtomDataset(Dataset):
         all_pdb_ids = self.protein_df['pdb_id'].tolist()
         valid_pdb_ids = [pid for pid in all_pdb_ids if pid in self.depth_indexes]
 
+        # FIX 5: Exclude HETATM-dominant proteins (very few protein atoms, mostly ligands)
+        # These 38 proteins have raw_atoms/graphein_atoms ratio > 3.8
+        # They're valid but contribute minimal training signal (4-227 atoms)
+        HETATM_DOMINANT_PROTEINS = {
+            '3mbs', '6phm', '6phq', '2kql', '6phn', '3try', '4ttk', '2q33',
+            '1a7z', '5m2h', '1hzs', '1bfw', '1hhy', '5m2k', '1qd8', '1cya',
+            '1rru', '7c4u', '7c4v', '1ghg', '1hhz', '6mw0', '1cw8', '1cvq',
+            '1al4', '6ug2', '4g14', '2l2w', '6udz', '1alz', '6ud9', '6ufu',
+            '1m24', '1kyj', '4k7t', '7rms', '7rmr', '7l98'
+        }
+        valid_pdb_ids = [pid for pid in valid_pdb_ids if pid not in HETATM_DOMINANT_PROTEINS]
+
         # Filter dataframe to only valid proteins
         self.protein_df = self.protein_df[self.protein_df['pdb_id'].isin(valid_pdb_ids)]
 
