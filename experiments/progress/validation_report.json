@@ -1,0 +1,88 @@
+{
+  "timestamp": "2026-01-08T18:05:26.621132",
+  "root_dir": "c:\\Users\\Edoardo\\GNN_protein_exposure\\GNN_atom_exposure",
+  "validations": {
+    "depth_indexes": {
+      "is_valid": true,
+      "info": {
+        "type": "<class 'pandas.core.frame.DataFrame'>",
+        "shape": [
+          10996146,
+          3
+        ],
+        "columns": [
+          "atom_name",
+          "depth_index",
+          "pdb_id"
+        ],
+        "num_proteins": 4594,
+        "total_atoms": 10996146,
+        "depth_stats": {
+          "mean": 0.4887316823005676,
+          "std": 0.35241058468818665,
+          "min": 0.0,
+          "max": 1.8982356786727905,
+          "has_nan": false,
+          "has_inf": false
+        }
+      }
+    },
+    "protein_list": {
+      "is_valid": true,
+      "info": {
+        "total_proteins": 5000,
+        "proteins_with_labels": 4594,
+        "proteins_missing_labels": 406,
+        "missing_percentage": 8.12
+      }
+    },
+    "sample_proteins": {
+      "1tgg": {
+        "is_valid": true,
+        "info": {
+          "pdb_id": "1tgg",
+          "num_atoms": 604,
+          "num_features": 80,
+          "depth_entries": 604,
+          "matched_atoms": 604,
+          "unmatched_atoms": 0,
+          "match_percentage": 100.0,
+          "num_edges": 1047
+        }
+      },
+      "1i4l": {
+        "is_valid": true,
+        "info": {
+          "pdb_id": "1i4l",
+          "num_atoms": 4294,
+          "num_features": 80,
+          "depth_entries": 4294,
+          "matched_atoms": 4294,
+          "unmatched_atoms": 0,
+          "match_percentage": 100.0,
+          "num_edges": 10097
+        }
+      },
+      "4ye1": {
+        "is_valid": true,
+        "info": {
+          "pdb_id": "4ye1",
+          "num_atoms": 1690,
+          "num_features": 80,
+          "depth_entries": 1690,
+          "matched_atoms": 1690,
+          "unmatched_atoms": 0,
+          "match_percentage": 100.0,
+          "num_edges": 3772
+        }
+      }
+    },
+    "dataset_loading": {
+      "is_valid": false,
+      "info": {
+        "error": "[Errno 2] No such file or directory: 'c:\\\\Users\\\\Edoardo\\\\GNN_protein_exposure\\\\GNN_atom_exposure\\\\protein_sample_5000.csv'"
+      }
+    }
+  },
+  "overall_valid": false
+}

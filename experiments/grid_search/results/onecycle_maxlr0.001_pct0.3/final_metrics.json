@@ -1,0 +1,19 @@
+{
+  "experiment": "onecycle_maxlr0.001_pct0.3",
+  "scheduler": "one_cycle",
+  "params": {
+    "max_lr": 0.001,
+    "pct_start": 0.3
+  },
+  "metrics": {
+    "mae": 0.19155161082744598,
+    "mse": 0.058078065514564514,
+    "rmse": 0.24099391177904167,
+    "r2": 0.5345739126205444,
+    "pearson_corr": 0.7317614555358887,
+    "pearson_pval": 0.0,
+    "mean_error": -0.004664560314267874,
+    "std_error": 0.24094873666763306,
+    "median_ae": 0.159229576587677
+  }
+}

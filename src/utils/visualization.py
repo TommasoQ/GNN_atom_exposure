@@ -46,8 +46,9 @@ def plot_training_curves(
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Saved training curves to {save_path}")
-
-    plt.show()
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_predictions(
@@ -91,8 +92,9 @@ def plot_predictions(
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Saved predictions plot to {save_path}")
-
-    plt.show()
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_error_distribution(
@@ -133,8 +135,9 @@ def plot_error_distribution(
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Saved error distribution to {save_path}")
-
-    plt.show()
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_metrics_comparison(
@@ -167,8 +170,9 @@ def plot_metrics_comparison(
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Saved metrics comparison to {save_path}")
-
-    plt.show()
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_atom_exposure_protein(
@@ -220,8 +224,9 @@ def plot_atom_exposure_protein(
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"Saved atom exposure plot to {save_path}")
-
-    plt.show()
+        plt.close()
+    else:
+        plt.show()
 
 
 if __name__ == '__main__':

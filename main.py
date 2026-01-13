@@ -62,7 +62,9 @@ def main(args):
     print("\nCreating model...")
     model = create_model(config.model.to_dict())
     num_params = sum(p.numel() for p in model.parameters())
-    print(f"  Model: {config.model.model_type.upper()}")
+    conv_type = getattr(config.model, 'conv_type', 'gcn').upper()
+    print(f"  Architecture: {conv_type}")
+    print(f"  Layers: {config.model.num_layers}, Hidden: {config.model.hidden_channels}")
     print(f"  Parameters: {num_params:,}")
     model.to(device)
 
@@ -74,7 +76,33 @@ def main(args):
     )
     criterion = nn.MSELoss()
 
-    # Create trainer
+    # Get scheduler type (scheduler created later for one_cycle which needs steps_per_epoch)
+    scheduler_type = getattr(config.training, 'scheduler', 'reduce_on_plateau')
+    scheduler = None
+    scheduler_step_per_batch = False  # OneCycleLR steps per batch, others per epoch
+
+    if scheduler_type == 'cosine_annealing':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=config.training.num_epochs,
+            eta_min=getattr(config.training, 'min_lr', 1e-6)
+        )
+        print(f"  Scheduler: Cosine Annealing (T_max={config.training.num_epochs})")
+    elif scheduler_type == 'reduce_on_plateau':
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode='min',
+            factor=0.5,
+            patience=getattr(config.training, 'patience', 10),
+            min_lr=getattr(config.training, 'min_lr', 1e-6)
+        )
+        print(f"  Scheduler: ReduceOnPlateau (patience={getattr(config.training, 'patience', 10)})")
+    elif scheduler_type == 'one_cycle':
+        # OneCycleLR needs steps_per_epoch, will be created after data loaders
+        print(f"  Scheduler: One Cycle (will initialize after data loading)")
+        scheduler_step_per_batch = True
+
+    # Create trainer (scheduler may be set later for one_cycle)
     trainer = Trainer(
         model=model,
         optimizer=optimizer,
@@ -82,7 +110,9 @@ def main(args):
         device=device,
         checkpoint_dir=config.experiment.checkpoint_dir,
         gradient_clip=getattr(config.training, 'gradient_clip', None),
-        early_stopping_patience=getattr(config.training, 'early_stopping_patience', None)
+        early_stopping_patience=getattr(config.training, 'early_stopping_patience', None),
+        scheduler=scheduler,
+        scheduler_step_per_epoch=not scheduler_step_per_batch
     )
 
     # Training
@@ -106,6 +136,21 @@ def main(args):
             shuffle=False,
             num_workers=config.data.num_workers
         )
+
+        # Initialize OneCycleLR if selected (requires steps_per_epoch)
+        if scheduler_type == 'one_cycle':
+            steps_per_epoch = len(train_loader)
+            print(f"  Initializing OneCycleLR scheduler with {steps_per_epoch} steps per epoch")
+            trainer.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                optimizer,
+                max_lr=getattr(config.training, 'max_lr', 0.001),
+                epochs=config.training.num_epochs,
+                steps_per_epoch=steps_per_epoch,
+                pct_start=getattr(config.training, 'pct_start', 0.3),
+                div_factor=getattr(config.training, 'div_factor', 25.0),
+                final_div_factor=getattr(config.training, 'final_div_factor', 10000.0)
+            )
+
         print("-" * 60)
         trainer.train(
             train_loader=train_loader,
@@ -145,6 +190,7 @@ def main(args):
     print("-" * 60)
     # evaluate_model now returns metrics and predictions to avoid a second pass
     test_metrics, y_true, y_pred = evaluate_model(trainer.model, test_loader, device)
+    print(f"FINAL_RESULT: r2={test_metrics['r2']:.4f}")
     print_metrics(test_metrics)
 
     # Generate predictions and visualizations

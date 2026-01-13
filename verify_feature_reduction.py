@@ -53,20 +53,20 @@ expected = {
 
 # Display counts
 print("\nFeature Counts:")
-print(f"  Numerical:  {num_numerical:3d}  (expected: {expected['numerical']:3d})  {'✓' if num_numerical == expected['numerical'] else '✗ MISMATCH!'}")
-print(f"  Atom types: {num_atom_types:3d}  (expected: {expected['atom_types']:3d})  {'✓' if num_atom_types == expected['atom_types'] else '✗ MISMATCH!'}")
-print(f"  Elements:   {num_elements:3d}  (expected: {expected['elements']:3d})  {'✓' if num_elements == expected['elements'] else '✗ MISMATCH!'}")
-print(f"  Residues:   {num_residues:3d}  (expected: {expected['residues']:3d})  {'✓' if num_residues == expected['residues'] else '✗ MISMATCH!'}")
-print(f"  Geometric:  {num_geometric:3d}  (expected: {expected['geometric']:3d})  {'✓' if num_geometric == expected['geometric'] else '✗ MISMATCH!'}")
+print(f"  Numerical:  {num_numerical:3d}  (expected: {expected['numerical']:3d})  {'[OK]' if num_numerical == expected['numerical'] else '[FAIL] MISMATCH!'}")
+print(f"  Atom types: {num_atom_types:3d}  (expected: {expected['atom_types']:3d})  {'[OK]' if num_atom_types == expected['atom_types'] else '[FAIL] MISMATCH!'}")
+print(f"  Elements:   {num_elements:3d}  (expected: {expected['elements']:3d})  {'[OK]' if num_elements == expected['elements'] else '[FAIL] MISMATCH!'}")
+print(f"  Residues:   {num_residues:3d}  (expected: {expected['residues']:3d})  {'[OK]' if num_residues == expected['residues'] else '[FAIL] MISMATCH!'}")
+print(f"  Geometric:  {num_geometric:3d}  (expected: {expected['geometric']:3d})  {'[OK]' if num_geometric == expected['geometric'] else '[FAIL] MISMATCH!'}")
 print(f"  {'─' * 50}")
-print(f"  TOTAL:      {total:3d}  (expected: {expected['total']:3d})  {'✓' if total == expected['total'] else '✗ MISMATCH!'}")
+print(f"  TOTAL:      {total:3d}  (expected: {expected['total']:3d})  {'[OK]' if total == expected['total'] else '[FAIL] MISMATCH!'}")
 
 # Verify get_feature_dimensions() function
 dims = get_feature_dimensions()
 print("\nget_feature_dimensions() output:")
 for key, value in dims.items():
     exp = expected.get(key, 'N/A')
-    status = '✓' if value == exp else '✗ MISMATCH!'
+    status = '[OK]' if value == exp else '[FAIL] MISMATCH!'
     print(f"  {key:12s}: {value:3d}  (expected: {exp:3d})  {status}")
 
 # Print removed features summary
@@ -97,16 +97,16 @@ for feature in removed_features:
 # Final status
 print("\n" + "=" * 80)
 if total == expected['total']:
-    print("✓ VERIFICATION PASSED - Feature reduction correctly implemented!")
-    print(f"✓ Total features: {total} (reduced from 100)")
+    print("[OK] VERIFICATION PASSED - Feature reduction correctly implemented!")
+    print(f"[OK] Total features: {total} (reduced from 100)")
     print("\nNext steps:")
     print("  1. Delete dataset/processed/ folder to regenerate graphs with 86 features")
     print("  2. Run training: venv\\Scripts\\python.exe main.py")
     print("  3. Compare results with Exp 3.7 (R² = 0.4985 with 100 features)")
     sys.exit(0)
 else:
-    print("✗ VERIFICATION FAILED - Feature count mismatch!")
-    print(f"✗ Expected: {expected['total']}, Got: {total}")
+    print("[FAIL] VERIFICATION FAILED - Feature count mismatch!")
+    print(f"[FAIL] Expected: {expected['total']}, Got: {total}")
     print("\nPlease review feature_engineering.py for errors.")
     sys.exit(1)
 print("=" * 80)

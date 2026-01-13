@@ -120,15 +120,14 @@ class AtomExposureGNN(nn.Module):
             # Batch normalization
             x = bn(x)
 
-            # Activation
+            # Activation and Dropout
             x = F.relu(x)
+            x = F.dropout(x, p=self.dropout, training=self.training)
 
             # Residual connection
+            # Add the residual (identity) after the transformation block
             if i > 0:
                 x = x + x_in
-
-            # Dropout
-            x = F.dropout(x, p=self.dropout, training=self.training)
 
         # Output projection
         out = self.out_proj(x)
@@ -198,7 +197,8 @@ def create_model(config: dict) -> nn.Module:
             hidden_channels=config.get('hidden_channels', 128),
             num_layers=config.get('num_layers', 3),
             dropout=config.get('dropout', 0.2),
-            conv_type=config.get('conv_type', 'gcn')
+            conv_type=config.get('conv_type', 'gcn'),
+            edge_dim=config.get('edge_dim', 1)
         )
     elif model_type == 'simple':
         return SimpleGCN(

@@ -7,6 +7,7 @@ from torch_geometric.loader import DataLoader
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from scipy.stats import pearsonr
 import numpy as np
+import sys
 from typing import Dict, Tuple
 from tqdm import tqdm
 
@@ -34,7 +35,7 @@ def evaluate_model(
     all_preds = []
     all_targets = []
 
-    for batch in tqdm(data_loader, desc='Evaluating'):
+    for batch in tqdm(data_loader, desc='Evaluating', mininterval=0.5, leave=False, disable=not sys.stdout.isatty(), ncols=80, ascii=True):
         batch = batch.to(device)
 
         # Forward pass
@@ -92,40 +93,6 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
         'std_error': std_error,
         'median_ae': median_ae
     }
-
-
-@torch.no_grad()
-def predict(
-    model: nn.Module,
-    data_loader: DataLoader,
-    device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Generate predictions for a dataset.
-
-    Args:
-        model (nn.Module): Model
-        data_loader (DataLoader): Data loader
-        device (str): Device
-
-    Returns:
-        tuple: (predictions, targets)
-    """
-    model.eval()
-    model = model.to(device)
-
-    all_preds = []
-    all_targets = []
-
-    for batch in tqdm(data_loader, desc='Predicting'):
-        batch = batch.to(device)
-
-        out = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-
-        all_preds.append(out.cpu().numpy())
-        all_targets.append(batch.y.cpu().numpy())
-
-    return np.concatenate(all_preds), np.concatenate(all_targets)
 
 
 def print_metrics(metrics: Dict[str, float]):

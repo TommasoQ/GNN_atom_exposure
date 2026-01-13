@@ -12,20 +12,25 @@ model:
   hidden_channels: 96  # Back to 96 (simpler model)
   num_layers: 3  # Back to 3 layers (4L gave only +0.5%)
   dropout: 0.35  # Exp 4.2: Slightly higher dropout
-  conv_type: gin  # GIN (best architecture from Phase 3)
+  conv_type: gine  # Exp 4.5: GINE with edge features (re-evaluating with improved dropout)
 
 training:
   num_epochs: 50  # Full training with early stopping
   learning_rate: 0.0005  # Exp 4.2: Lower LR for finer convergence
   weight_decay: 1.0e-04  # Moderate regularization
-  scheduler: reduce_on_plateau
-  patience: 10  # For learning rate reduction
+  scheduler: cosine_annealing  # Smooth LR decay for stable late-stage training
+  patience: 10  # For learning rate reduction (if using reduce_on_plateau)
   early_stopping_patience: 15  # Increased patience for stability
   min_lr: 1.0e-06
   gradient_clip: 1.0  # Prevent gradient explosion
+  # One Cycle Scheduler Parameters
+  max_lr: 0.001
+  pct_start: 0.3
+  div_factor: 25.0
+  final_div_factor: 10000.0
 
 experiment:
-  name: gin_lowlr_highdropout  # Exp 4.2: Lower LR (0.0005), higher dropout (0.35)
+  name: gine_cosine_annealing  # Exp 4.6: GINE with cosine annealing LR
   checkpoint_dir: experiments/checkpoints
   log_dir: experiments/logs
   save_best: true

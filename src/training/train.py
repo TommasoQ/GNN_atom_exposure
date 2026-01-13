@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import os
+import sys
 from typing import Dict, Optional
 import numpy as np
 
@@ -20,6 +21,8 @@ class Trainer:
         criterion (nn.Module): Loss function
         device (str): Device to train on ('cuda' or 'cpu')
         checkpoint_dir (str): Directory to save checkpoints
+        scheduler: Learning rate scheduler (optional)
+        scheduler_step_per_epoch (bool): If True, step scheduler after each epoch
     """
 
     def __init__(
@@ -30,7 +33,9 @@ class Trainer:
         device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
         checkpoint_dir: str = 'experiments/checkpoints',
         gradient_clip: Optional[float] = None,
-        early_stopping_patience: Optional[int] = None
+        early_stopping_patience: Optional[int] = None,
+        scheduler=None,
+        scheduler_step_per_epoch: bool = True
     ):
         self.model = model.to(device)
         self.optimizer = optimizer
@@ -39,6 +44,8 @@ class Trainer:
         self.checkpoint_dir = checkpoint_dir
         self.gradient_clip = gradient_clip
         self.early_stopping_patience = early_stopping_patience
+        self.scheduler = scheduler
+        self.scheduler_step_per_epoch = scheduler_step_per_epoch
 
         os.makedirs(checkpoint_dir, exist_ok=True)
 
@@ -61,7 +68,7 @@ class Trainer:
         total_loss = 0
         num_samples = 0
 
-        pbar = tqdm(train_loader, desc='Training')
+        pbar = tqdm(train_loader, desc='Training', mininterval=0.5, leave=False, disable=not sys.stdout.isatty(), ncols=80, ascii=True)
         for batch in pbar:
             batch = batch.to(self.device)
 
@@ -80,6 +87,10 @@ class Trainer:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
 
             self.optimizer.step()
+
+            # Step scheduler per batch if configured (e.g. OneCycleLR)
+            if self.scheduler is not None and not self.scheduler_step_per_epoch:
+                self.scheduler.step()
 
             # Update metrics
             total_loss += loss.item() * batch.num_nodes
@@ -109,7 +120,7 @@ class Trainer:
         all_preds = []
         all_targets = []
 
-        for batch in tqdm(val_loader, desc='Validation'):
+        for batch in tqdm(val_loader, desc='Validation', mininterval=0.5, leave=False, disable=not sys.stdout.isatty(), ncols=80, ascii=True):
             batch = batch.to(self.device)
 
             # Forward pass
@@ -183,17 +194,26 @@ class Trainer:
                     epoch,
                     val_metrics
                 )
-                print(f"✓ New best model saved (val_loss: {self.best_val_loss:.4f})")
+                print(f"[+] New best model saved (val_loss: {self.best_val_loss:.4f})")
             else:
                 self.epochs_without_improvement += 1
 
             # Early stopping check
             if self.early_stopping_patience is not None:
                 if self.epochs_without_improvement >= self.early_stopping_patience:
-                    print(f"\n⚠ Early stopping triggered after {epoch + 1} epochs")
+                    print(f"\n[!] Early stopping triggered after {epoch + 1} epochs")
                     print(f"   No improvement for {self.early_stopping_patience} consecutive epochs")
                     print(f"   Best validation loss: {self.best_val_loss:.4f}")
                     break
+
+            # Step scheduler after epoch
+            if self.scheduler is not None and self.scheduler_step_per_epoch:
+                if hasattr(self.scheduler, 'step'):
+                    # ReduceLROnPlateau needs val_loss, others don't
+                    if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                        self.scheduler.step(val_metrics['loss'])
+                    else:
+                        self.scheduler.step()
 
         print("\nTraining completed!")
 
