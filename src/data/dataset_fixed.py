@@ -164,6 +164,12 @@ class ProteinAtomDataset(Dataset):
                 else:
                     ProteinAtomDataset._depth_indexes_cache = depth_indexes_df
 
+                # Save the converted dict for faster loading next time
+                print(f"Saving converted dict to {depth_dict_path}...")
+                with open(depth_dict_path, 'wb') as f:
+                    pickle.dump(ProteinAtomDataset._depth_indexes_cache, f)
+                print(f"Saved! Next run will load directly from dict.")
+
         self.depth_indexes = ProteinAtomDataset._depth_indexes_cache
 
         # FIX 2: Filter proteins without labels

@@ -1,9 +1,0 @@
-{
-  "split": "test",
-  "n_samples": 460,
-  "overall_rmse": 0.23035725951194763,
-  "overall_mae": 0.18160498142242432,
-  "overall_r2": 0.5723493099212646,
-  "per_protein_rmse_mean": 0.22217610980505528,
-  "per_protein_rmse_std": 0.045995292842512935
-}

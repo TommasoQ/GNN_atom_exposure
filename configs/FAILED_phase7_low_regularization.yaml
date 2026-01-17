@@ -1,0 +1,59 @@
+# ⚠️ FAILED EXPERIMENT - Phase 7: GINE with Lower Regularization
+# Based on Phase 5 GINE (R²=0.5684) with reduced dropout/weight_decay from reference
+# Target: R² > 0.57
+#
+# RESULT: R² = 0.5604-0.5607 (FAILED to beat Phase 5's 0.5684)
+# CONCLUSION: Current regularization (Phase 5) is already well-tuned
+# Date: 2026-01-16
+
+data:
+  root: dataset
+  batch_size: 16              # Reduced from 32 for more gradient updates
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+# Keep full 88 features (proven to work)
+features:
+  use_aggregated: false       # Don't use failed aggregated approach
+  use_reduced: false          # Keep all features
+  include_atom_type: true     # Keep atom type one-hot (31 features)
+  include_geometric: true     # Keep geometric features (7 features)
+
+model:
+  model_type: gnn
+  in_channels: 88             # 24 numerical + 31 atom + 5 element + 21 residue + 7 geometric
+  hidden_channels: 128        # Increased from 96 for more capacity
+  num_layers: 4               # Increased from 3 for deeper network
+  dropout: 0.3                # REDUCED from 0.35 - less aggressive regularization
+  conv_type: gine             # Keep GINE (proven best architecture)
+  edge_dim: 11                # 7 bond types + 4 numerical edge features
+
+training:
+  num_epochs: 200             # Extended training
+  learning_rate: 5.0e-04      # Base LR
+  weight_decay: 1.0e-05       # REDUCED from 1e-4 - lighter regularization
+  scheduler: one_cycle        # Keep proven OneCycle scheduler
+  early_stopping_patience: 25 # More patience
+  gradient_clip: 1.0
+  use_amp: true               # Mixed precision for speed
+  cudnn_benchmark: true
+  deterministic: false
+  # OneCycle parameters
+  max_lr: 0.003
+  warmup_epochs: 20           # Slightly longer warmup for 200 epochs
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  # Loss function - quadratic weighted MSE for exposed atoms
+  weighted_loss: true
+  loss_alpha: 5.0             # Weight scaling factor
+  loss_threshold: 0.5         # Threshold above which weighting kicks in
+  loss_power: 2.0             # Power law exponent (2.0 = quadratic growth)
+
+experiment:
+  name: phase7_gine_low_reg
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

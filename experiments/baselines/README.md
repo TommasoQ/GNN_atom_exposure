@@ -9,26 +9,32 @@ This folder contains baseline GNN training experiments for atom exposure predict
   - Preserved for historical reference only
   - See [README](_archived_invalid_experiments/README.md) for details
 
-- **`gcn_bugs_fixed/`** (Experiment 3.5) ✅ **COMPLETE**
+- **`experiment_3.5_gcn_baseline/`** (Experiment 3.5) ✅ **COMPLETE**
   - First valid experiment with all bugs fixed
   - GCN: 3 layers, 96 hidden, dropout 0.3
   - Results: MAE 0.204, R² 0.484, Pearson 0.696
   - Status: **First valid baseline established!**
-  - [View results](gcn_bugs_fixed/RESULTS.md)
+  - [View results](experiment_3.5_gcn_baseline/RESULTS.md)
 
-- **`gat_with_edges/`** (Experiment 3.6) ✅ **COMPLETE**
+- **`experiment_3.6_gat_edges/`** (Experiment 3.6) ✅ **COMPLETE**
   - GAT with edge features enabled (fair comparison)
   - GAT: 3 layers, 96 hidden, dropout 0.3, 4 heads
   - Results: MAE 0.204, R² 0.477, Pearson 0.691
   - Status: **Equivalent to GCN, no improvement**
-  - [View results](gat_with_edges/RESULTS.md)
+  - [View results](experiment_3.6_gat_edges/RESULTS.md)
 
-- **`phase5_gine_weighted_loss/`** (Phase 5 baseline) ✅ **NEW**
+- **`experiment_5.0_gine_best/`** (Phase 5) ✅ **CURRENT BEST**
   - GINE: 3 layers × 96 hidden, dropout 0.35, exposure-weighted MSE (α=1.5)
   - Scheduler: OneCycle (max_lr=0.003, warmup=15), deterministic seed=42
   - Results: MAE 0.1829, R² 0.5684, Pearson 0.7551
   - Status: **Current best deterministic baseline**
-  - [View results](phase5_gine_weighted_loss/RESULTS.md)
+  - [View results](experiment_5.0_gine_best/RESULTS.md)
+
+- **`FAILED_phase6_aggregated/`** (Phase 6) ❌ **FAILED**
+  - Attempted aggregated feature engineering (100+ → 50 features)
+  - Results: R² 0.4002 (29% drop from Phase 5)
+  - Reason: Over-aggregation lost important predictive information
+  - [View failure analysis](FAILED_phase6_aggregated/NOTES.md)
 
 ## Valid Experiments (Post-Bug-Fix)
 
@@ -45,8 +51,8 @@ Start from Experiment 3.5 onwards. All experiments before 3.5 are invalid due to
 
 ## Bug Information
 
-- **Full bug report**: `../progress/bug_discovery.md`
-- **Phase 3 summary**: `../progress/phase3_summary.md`
+- **Full bug report**: `../../docs/analysis/BUG_DISCOVERY.md`
+- **Phase 3 summary**: `../../docs/archive/phase3_complete.md`
 
 ## Key Bugs Fixed:
 
