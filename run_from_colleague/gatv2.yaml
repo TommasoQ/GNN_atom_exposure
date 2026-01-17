@@ -1,0 +1,57 @@
+# GATv2 Model Configuration
+# Graph Attention Network v2 with Edge Features for Protein Atom Exposure Prediction
+
+# Model architecture (~70k parameters)
+model:
+  name: gatv2_edge
+  node_input_dim: 50          # Will be updated from dataset
+  edge_input_dim: 11          # Will be updated from dataset (7 bond types + 4 numerical)
+  hidden_dim: 128             # Increased for ~70k params, must be divisible by num_heads
+  num_heads: 4                # Attention heads
+  num_layers: 4               # GATv2 layers
+  dropout: 0.1                # Layer dropout
+  attention_dropout: 0.1      # Attention dropout
+
+# Training parameters
+training:
+  batch_size: 16              # Graphs per batch
+  learning_rate: 0.0005       # Initial LR (5e-4)
+  weight_decay: 0.00001       # L2 regularization (1e-5)
+  epochs: 200                 # Maximum epochs
+  early_stopping_patience: 25 # Epochs without improvement
+  early_stopping_delta: 0.0001
+  gradient_clip: 1.0          # Gradient clipping norm
+
+# Optimizer
+optimizer:
+  name: adamw
+  betas: [0.9, 0.999]
+
+# Learning rate scheduler
+scheduler:
+  name: cosine                # cosine or plateau
+  T_max: 200                  # For cosine annealing
+  min_lr: 0.000001            # Minimum learning rate
+
+# Loss function
+loss:
+  name: mse
+  # Optional: attention regularization
+  attention_regularization: 0.0  # Set > 0 to penalize uniform attention
+
+# Data paths
+data:
+  root: ../dataset            # Relative to project root
+  num_workers: 0              # 0 for Windows (multiprocessing issues)
+  pin_memory: true
+
+# Checkpointing
+checkpoint:
+  dir: ../checkpoints/gatv2
+  save_every: 10              # Save checkpoint every N epochs
+
+# Logging
+logging:
+  log_every: 1                # Log metrics every N epochs
+  wandb: false                # Use Weights & Biases
+  project_name: gnn_atom_exposure

@@ -1,0 +1,57 @@
+# GATv2 Configuration with Aggregated Features
+# Target: R² >= 0.572
+
+data:
+  root: dataset  # Dataset directory with processed/ and raw/ subdirectories
+  batch_size: 16  # Smaller batch size for more gradient updates
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+# Feature configuration using aggregated transforms
+# Aggregates correlated features (hydrophobicity, secondary structure) and uses embeddings
+# Total: 31 numerical + 8 element embed + 11 residue embed = 50 features
+features:
+  use_aggregated: true        # Use aggregated feature transforms
+  element_embed_dim: 8        # Element embedding dimension
+  residue_embed_dim: 11       # Residue embedding dimension
+  # Legacy options (ignored when use_aggregated=true)
+  use_reduced: false
+  include_atom_type: false
+  include_geometric: true
+
+model:
+  model_type: gnn
+  in_channels: 50  # 31 numerical + 8 element embed + 11 residue embed
+  hidden_channels: 128
+  num_layers: 4  # Deeper network for longer-range atom interactions
+  dropout: 0.1  # Lower dropout - GATv2 attention provides implicit regularization
+  conv_type: gatv2  # GATv2 with attention mechanism
+  edge_dim: 11  # Enhanced edge features: 7 bond types + 4 numerical
+
+training:
+  num_epochs: 200  # Extended training
+  learning_rate: 5.0e-04  # Base LR
+  weight_decay: 1.0e-05  # Light regularization
+  scheduler: cosine_annealing  # Cosine annealing scheduler
+  patience: 10  # For learning rate reduction (if using reduce_on_plateau)
+  early_stopping_patience: 25  # Patience before stopping
+  min_lr: 1.0e-06  # Minimum LR for cosine annealing
+  gradient_clip: 1.0
+  # Performance optimizations
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # Weighted Loss Parameters - DISABLED for standard MSE
+  weighted_loss: false  # Standard MSE for better overall RMSE
+  loss_alpha: 1.5
+  loss_threshold: 0.8
+  loss_symmetric: false
+
+experiment:
+  name: gatv2_aggregated_features
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

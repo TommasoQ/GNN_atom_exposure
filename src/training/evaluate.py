@@ -38,8 +38,13 @@ def evaluate_model(
     for batch in tqdm(data_loader, desc='Evaluating', mininterval=0.5, leave=False, disable=not sys.stdout.isatty(), ncols=80, ascii=True):
         batch = batch.to(device)
 
+        # Get embedding indices if present
+        element_idx = getattr(batch, 'element_idx', None)
+        residue_idx = getattr(batch, 'residue_idx', None)
+
         # Forward pass
-        out = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+        out = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
+                    element_idx=element_idx, residue_idx=residue_idx)
 
         # Store predictions and targets
         all_preds.append(out.cpu().numpy())

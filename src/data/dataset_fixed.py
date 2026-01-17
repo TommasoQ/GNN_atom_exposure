@@ -1,6 +1,6 @@
 """
 PyTorch Geometric Dataset for Protein Atom Exposure Prediction
-FIXED VERSION - Phase 2
+FIXED VERSION - Phase 2 + Enhanced Edge Features
 """
 import os
 import pickle
@@ -11,19 +11,73 @@ from pathlib import Path
 from typing import Optional, Callable, List
 import numpy as np
 
-# Import feature engineering module
+# Bond types for edge feature extraction (7 types, one-hot encoded)
+BOND_TYPES = ['covalent', 'peptide_bond', 'hydrophobic', 'aromatic', 'hbond', 'ionic', 'ring']
+
+
+def extract_edge_features(edges_df: pd.DataFrame) -> np.ndarray:
+    """
+    Extract 11 edge features from edge DataFrame.
+    
+    Features (11 total):
+        - 7 bond type one-hot features: covalent, peptide_bond, hydrophobic, aromatic, hbond, ionic, ring
+        - 4 numerical features: distance, bond_length, normalized_distance, relative_distance
+    
+    Args:
+        edges_df: DataFrame with 'kind', 'distance', 'bond_length' columns
+        
+    Returns:
+        np.ndarray of shape (num_edges, 11)
+    """
+    n_edges = len(edges_df)
+    edge_features = np.zeros((n_edges, 11), dtype=np.float32)
+    
+    for i, (_, edge) in enumerate(edges_df.iterrows()):
+        # Parse bond types (lowercase normalization)
+        kind = str(edge['kind']).lower() if pd.notna(edge['kind']) else ''
+        
+        # 7 bond type one-hot features (indices 0-6)
+        for j, bond_type in enumerate(BOND_TYPES):
+            if bond_type in kind:
+                edge_features[i, j] = 1.0
+        
+        # 4 numerical features (indices 7-10)
+        distance = edge['distance'] if pd.notna(edge['distance']) else 0.0
+        bond_length = edge['bond_length'] if pd.notna(edge['bond_length']) else 0.0
+        
+        edge_features[i, 7] = distance  # Raw distance
+        edge_features[i, 8] = bond_length  # Bond length (0 if not covalent)
+        edge_features[i, 9] = distance / 10.0  # Normalized distance (typical max ~10Å)
+        edge_features[i, 10] = distance - 3.8  # Relative to avg Cα-Cα distance (3.8Å)
+    
+    return edge_features
+
+
+# Import feature engineering modules
 try:
     from .feature_engineering import (
         extract_all_features,
         FeatureNormalizer,
-        get_feature_dimensions
+        get_feature_dimensions,
+        SELECTED_NUMERICAL_FEATURES,
+        REDUCED_NUMERICAL_FEATURES
+    )
+    from .aggregated_transforms import (
+        AggregatedFeatureNormalizer,
+        get_aggregated_feature_dimensions
     )
 except ImportError:
     # For direct execution
     from feature_engineering import (
         extract_all_features,
         FeatureNormalizer,
-        get_feature_dimensions
+        get_feature_dimensions,
+        SELECTED_NUMERICAL_FEATURES,
+        REDUCED_NUMERICAL_FEATURES
+    )
+    from aggregated_transforms import (
+        AggregatedFeatureNormalizer,
+        get_aggregated_feature_dimensions
     )
 
 
@@ -43,6 +97,11 @@ class ProteinAtomDataset(Dataset):
         split (str): Dataset split - 'train', 'val', or 'test'
         normalize_features (bool): Whether to normalize numerical features
         normalizer_path (str): Path to save/load normalization statistics
+        feature_config (dict): Feature configuration with keys:
+            - use_reduced_features (bool): Use redundancy-reduced features
+            - include_atom_type (bool): Include atom type one-hot encoding
+            - include_geometric (bool): Include geometric features
+            - use_aggregated (bool): Use aggregated feature transforms (31 numerical + embeddings)
         transform (callable, optional): Transform to apply to each graph
         pre_transform (callable, optional): Transform to apply before saving
         pre_filter (callable, optional): Filter to apply before saving
@@ -59,6 +118,7 @@ class ProteinAtomDataset(Dataset):
         split: str = 'train',
         normalize_features: bool = True,
         normalizer_path: Optional[str] = None,
+        feature_config: Optional[dict] = None,
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None
@@ -66,6 +126,14 @@ class ProteinAtomDataset(Dataset):
         self.split = split
         self.root = root
         self.normalize_features = normalize_features
+
+        # Feature configuration (defaults to full feature set)
+        self.feature_config = feature_config or {}
+        self.use_reduced_features = self.feature_config.get('use_reduced_features', False)
+        self.include_atom_type = self.feature_config.get('include_atom_type', True)
+        self.include_geometric = self.feature_config.get('include_geometric', True)
+        self.use_aggregated = self.feature_config.get('use_aggregated', False)
+        self.include_backbone_angles = self.feature_config.get('include_backbone_angles', False)
 
         # Load protein list
         protein_csv_path = os.path.join(root, 'protein_sample_5000.csv')
@@ -135,29 +203,52 @@ class ProteinAtomDataset(Dataset):
 
         # Setup feature normalization
         self.normalizer = None
+        self.aggregated_normalizer = None
+
+        # Determine normalizer suffix based on feature mode
+        normalizer_suffix = '_aggregated' if self.use_aggregated else ''
+
         if normalize_features:
             if normalizer_path is None:
-                normalizer_path = os.path.join(root, f'normalizer_{split}.pkl')
+                normalizer_path = os.path.join(root, f'normalizer_{split}{normalizer_suffix}.pkl')
 
             self.normalizer_path = normalizer_path
 
             if split == 'train':
                 # Training: fit normalizer on training data
-                self.normalizer = self._fit_normalizer()
-                self.normalizer.save(self.normalizer_path)
+                if self.use_aggregated:
+                    self.aggregated_normalizer = self._fit_aggregated_normalizer()
+                    self.aggregated_normalizer.save(self.normalizer_path)
+                else:
+                    self.normalizer = self._fit_normalizer()
+                    self.normalizer.save(self.normalizer_path)
             else:
                 # Val/Test: load normalizer from training
-                train_normalizer_path = os.path.join(root, 'normalizer_train.pkl')
+                train_normalizer_path = os.path.join(root, f'normalizer_train{normalizer_suffix}.pkl')
                 if os.path.exists(train_normalizer_path):
-                    self.normalizer = FeatureNormalizer()
-                    self.normalizer.load(train_normalizer_path)
+                    if self.use_aggregated:
+                        self.aggregated_normalizer = AggregatedFeatureNormalizer()
+                        self.aggregated_normalizer.load(train_normalizer_path)
+                    else:
+                        self.normalizer = FeatureNormalizer()
+                        self.normalizer.load(train_normalizer_path)
                 else:
                     print(f"WARNING: No normalizer found at {train_normalizer_path}")
 
         # Print dataset info only once (on first split loaded)
         if not ProteinAtomDataset._dataset_info_printed:
-            dims = get_feature_dimensions()
-            print(f"Dataset: {len(valid_pdb_ids)} proteins, {dims['total']} features")
+            if self.use_aggregated:
+                dims = get_aggregated_feature_dimensions()
+                config_str = "aggregated=True (31 numerical + embeddings)"
+            else:
+                dims = get_feature_dimensions(
+                    use_reduced_features=self.use_reduced_features,
+                    include_atom_type=self.include_atom_type,
+                    include_geometric=self.include_geometric,
+                    include_backbone_angles=self.include_backbone_angles
+                )
+                config_str = f"reduced={self.use_reduced_features}, atom_type={self.include_atom_type}, geometric={self.include_geometric}, backbone={self.include_backbone_angles}"
+            print(f"Dataset: {len(valid_pdb_ids)} proteins, {dims['total']} features ({config_str})")
             ProteinAtomDataset._dataset_info_printed = True
 
         super().__init__(root, transform, pre_transform, pre_filter)
@@ -167,10 +258,8 @@ class ProteinAtomDataset(Dataset):
         Fit normalizer on a subset of training data.
         Uses first 100 proteins to compute statistics.
         """
-        try:
-            from .feature_engineering import SELECTED_NUMERICAL_FEATURES
-        except ImportError:
-            from feature_engineering import SELECTED_NUMERICAL_FEATURES
+        # Select feature list based on configuration
+        numerical_feature_list = REDUCED_NUMERICAL_FEATURES if self.use_reduced_features else SELECTED_NUMERICAL_FEATURES
 
         normalizer = FeatureNormalizer()
         all_features = []
@@ -184,8 +273,8 @@ class ProteinAtomDataset(Dataset):
                 nodes_path = os.path.join(protein_dir, f'{pdb_id}__graphein__ATOM_nodes.csv')
                 nodes_df = pd.read_csv(nodes_path, index_col=0)
 
-                # Extract numerical features
-                numerical_features = nodes_df[SELECTED_NUMERICAL_FEATURES].values
+                # Extract numerical features based on configuration
+                numerical_features = nodes_df[numerical_feature_list].values
                 all_features.append(numerical_features)
             except Exception as e:
                 print(f"  Warning: Skipping {pdb_id} for normalization: {e}")
@@ -196,6 +285,34 @@ class ProteinAtomDataset(Dataset):
             normalizer.fit(all_features)
         else:
             raise RuntimeError("Could not fit normalizer - no valid proteins found")
+
+        return normalizer
+
+    def _fit_aggregated_normalizer(self) -> AggregatedFeatureNormalizer:
+        """
+        Fit aggregated normalizer on a subset of training data.
+        Uses first 100 proteins to compute statistics.
+        """
+        normalizer = AggregatedFeatureNormalizer()
+        node_dfs = []
+
+        # Sample proteins for fitting (use first 100)
+        sample_ids = self.protein_ids[:min(100, len(self.protein_ids))]
+
+        for pdb_id in sample_ids:
+            try:
+                protein_dir = os.path.join(self.root, 'sadic_data', pdb_id)
+                nodes_path = os.path.join(protein_dir, f'{pdb_id}__graphein__ATOM_nodes.csv')
+                nodes_df = pd.read_csv(nodes_path, index_col=0)
+                node_dfs.append(nodes_df)
+            except Exception as e:
+                print(f"  Warning: Skipping {pdb_id} for normalization: {e}")
+                continue
+
+        if len(node_dfs) > 0:
+            normalizer.fit_nodes(node_dfs)
+        else:
+            raise RuntimeError("Could not fit aggregated normalizer - no valid proteins found")
 
         return normalizer
 
@@ -300,34 +417,55 @@ class ProteinAtomDataset(Dataset):
         node_ids = nodes_df['original_index'].values
         node_to_idx = {node_id: idx for idx, node_id in enumerate(node_ids)}
 
-        # Create edge index and extract distances
+        # Create edge index and filter valid edges
         edge_index = []
-        edge_distances = []
+        valid_edge_indices = []  # Track which edges are valid for feature extraction
 
-        for _, edge in edges_df.iterrows():
+        for i, (_, edge) in enumerate(edges_df.iterrows()):
             src = node_to_idx.get(edge['idx_0'])
             dst = node_to_idx.get(edge['idx_1'])
 
             if src is not None and dst is not None:
                 edge_index.append([src, dst])
-                distance = edge['distance'] if not pd.isna(edge['distance']) else 0.0
-                edge_distances.append(distance)
+                valid_edge_indices.append(i)
 
         edge_index_np = np.array(edge_index).T if len(edge_index) > 0 else np.zeros((2, 0), dtype=np.int64)
-        edge_distances_np = np.array(edge_distances) if len(edge_distances) > 0 else np.zeros(0)
+        
+        # Extract 11-dimensional edge features (7 bond types + 4 numerical)
+        if len(valid_edge_indices) > 0:
+            valid_edges_df = edges_df.iloc[valid_edge_indices]
+            edge_features = extract_edge_features(valid_edges_df)
+        else:
+            edge_features = np.zeros((0, 11), dtype=np.float32)
+        
+        # Also extract distances for node feature computation (geometric features)
+        edge_distances_np = edge_features[:, 7] if len(edge_features) > 0 else np.zeros(0)
 
-        # FIX 3: Extract all features using feature engineering pipeline
-        features, feature_names = extract_all_features(
-            nodes_df=nodes_df,
-            edge_index=edge_index_np,
-            edge_distances=edge_distances_np,
-            normalizer=self.normalizer,
-            normalize=self.normalize_features
-        )
+        # Extract features based on mode
+        element_idx = None
+        residue_idx = None
 
-        x = torch.tensor(features, dtype=torch.float)
+        if self.use_aggregated and self.aggregated_normalizer is not None:
+            # Use aggregated feature transforms (31 numerical + embedding indices)
+            numerical_features, element_idx, residue_idx = self.aggregated_normalizer.transform_nodes(nodes_df)
+            x = numerical_features  # Already a tensor
+        else:
+            # FIX 3: Extract all features using feature engineering pipeline
+            features, feature_names = extract_all_features(
+                nodes_df=nodes_df,
+                edge_index=edge_index_np,
+                edge_distances=edge_distances_np,
+                normalizer=self.normalizer,
+                normalize=self.normalize_features,
+                use_reduced_features=self.use_reduced_features,
+                include_atom_type=self.include_atom_type,
+                include_geometric=self.include_geometric,
+                include_backbone_angles=self.include_backbone_angles
+            )
+            x = torch.tensor(features, dtype=torch.float)
+
         edge_index = torch.tensor(edge_index_np, dtype=torch.long)
-        edge_attr = torch.tensor(edge_distances_np, dtype=torch.float).unsqueeze(-1)
+        edge_attr = torch.tensor(edge_features, dtype=torch.float)  # Now 11-dim
 
         # FIX 4: Proper target matching
         if pdb_id in self.depth_indexes:
@@ -356,6 +494,12 @@ class ProteinAtomDataset(Dataset):
             pdb_id=pdb_id,
             num_nodes=len(nodes_df)
         )
+
+        # Add embedding indices if using aggregated transforms
+        if element_idx is not None:
+            data.element_idx = element_idx
+        if residue_idx is not None:
+            data.residue_idx = residue_idx
 
         return data
 

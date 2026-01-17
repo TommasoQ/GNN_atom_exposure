@@ -19,7 +19,20 @@
       "Bash(then tail -50 experiments/progress/training_test.log)",
       "Bash(else echo \"Log file not created yet\")",
       "Bash(fi)",
-      "Bash(gh pr list:*)"
+      "Bash(gh pr list:*)",
+      "Bash(dir /s \"c:\\\\Users\\\\Edoardo\\\\GNN_protein_exposure\\\\GNN_atom_exposure\\\\run_from_colleague\")",
+      "Bash(dir /s \"c:\\\\Users\\\\Edoardo\\\\GNN_protein_exposure\\\\GNN_atom_exposure\\\\experiments\\\\baselines\")",
+      "Bash(where:*)",
+      "Bash(dir:*)",
+      "Bash(del /q \"c:\\\\Users\\\\Edoardo\\\\GNN_protein_exposure\\\\GNN_atom_exposure\\\\dataset\\\\processed\\\\*.pt\")",
+      "Bash(del /q \"c:\\\\Users\\\\Edoardo\\\\GNN_protein_exposure\\\\GNN_atom_exposure\\\\dataset\\\\normalizer_*.pkl\")",
+      "Bash(del /q datasetprocessed*.pt)",
+      "Bash(del /q datasetnormalizer*.pkl)",
+      "Bash(powershell -Command:*)",
+      "Bash(venv\\\\Scripts\\\\python.exe:*)",
+      "Bash(c:\\\\Users\\\\Edoardo\\\\GNN_protein_exposure\\\\GNN_atom_exposure\\\\.venv\\\\Scripts\\\\python.exe:*)",
+      "Bash(wc:*)",
+      "Bash(du:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Edoardo\\GNN_protein_exposure\\GNN_atom_exposure\\experiments"

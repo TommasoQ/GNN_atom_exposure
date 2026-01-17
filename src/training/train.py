@@ -13,6 +13,47 @@ from typing import Dict, Optional, List
 import numpy as np
 
 
+class ExposureWeightedMSELoss(nn.Module):
+    """
+    MSE loss with higher weight for exposed atoms (high target values).
+
+    Addresses the model's tendency to regress to the mean by emphasizing
+    predictions on rare, highly-exposed surface atoms.
+
+    Weight formula: weight = 1 + alpha * (max(0, target - threshold))^power
+
+    Args:
+        alpha: Weight scaling factor (default: 5.0)
+        threshold: Target value above which weighting kicks in (default: 0.5)
+        power: Exponent for weight growth - higher = more emphasis on extremes (default: 2.0)
+
+    Example weights (alpha=5, threshold=0.5, power=2):
+        target=0.3 -> weight=1.0 (below threshold)
+        target=0.8 -> weight=1.45 (0.3^2 * 5 = 0.45)
+        target=1.2 -> weight=3.45 (0.7^2 * 5 = 2.45)
+        target=1.5 -> weight=6.0 (1.0^2 * 5 = 5.0)
+    """
+
+    def __init__(self, alpha: float = 5.0, threshold: float = 0.5, power: float = 2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.threshold = threshold
+        self.power = power
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # How much target exceeds threshold (0 if below)
+        diff = torch.clamp(target - self.threshold, min=0.0)
+
+        # Weight grows with power law based on exposure level
+        weights = 1.0 + self.alpha * (diff ** self.power)
+
+        # Weighted MSE
+        squared_error = (pred - target) ** 2
+        weighted_loss = (weights * squared_error).mean()
+
+        return weighted_loss
+
+
 class Trainer:
     """
     Trainer class for GNN models.
@@ -61,6 +102,7 @@ class Trainer:
         self.val_losses = []
         self.val_maes = []  # Track validation MAE per epoch
         self.val_rmses = []  # Track validation RMSE per epoch
+        self.val_r2s = []  # Track validation R² per epoch
         self.learning_rates = []  # Track LR per epoch
         self.best_val_loss = float('inf')
         self.epochs_without_improvement = 0
@@ -79,50 +121,67 @@ class Trainer:
         total_loss = 0
         num_samples = 0
 
-        pbar = tqdm(train_loader, desc='Training', mininterval=0.5, leave=False, disable=not sys.stdout.isatty(), ncols=80, ascii=True)
+        # Progress bar - use position=0 and dynamic_ncols for cleaner output
+        pbar = tqdm(train_loader, desc='Training', leave=False, 
+                    dynamic_ncols=True, position=0)
         for batch in pbar:
             batch = batch.to(self.device)
 
             self.optimizer.zero_grad()
 
+            # Get embedding indices if present
+            element_idx = getattr(batch, 'element_idx', None)
+            residue_idx = getattr(batch, 'residue_idx', None)
+
             if self.use_amp:
                 # Mixed precision training
                 with torch.amp.autocast('cuda'):
-                    out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                    out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
+                                     element_idx=element_idx, residue_idx=residue_idx)
                     loss = self.criterion(out, batch.y)
-                
+
                 # Scaled backward pass
                 self.scaler.scale(loss).backward()
-                
+
                 # Gradient clipping if enabled (must unscale first)
                 if self.gradient_clip is not None:
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
-                
+
+                # Track scale before step to detect if optimizer actually stepped
+                old_scale = self.scaler.get_scale()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
+                # If scale didn't change due to inf gradients, optimizer was skipped
+                optimizer_step_ran = (self.scaler.get_scale() >= old_scale)
             else:
                 # Standard training
-                out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
+                                 element_idx=element_idx, residue_idx=residue_idx)
                 loss = self.criterion(out, batch.y)
                 loss.backward()
-                
+
                 if self.gradient_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
-                
                 self.optimizer.step()
+                optimizer_step_ran = True  # Standard path always steps
 
-            # Step scheduler per batch if configured (e.g. OneCycleLR)
-            if self.scheduler is not None and not self.scheduler_step_per_epoch:
+            # Step scheduler per batch AFTER optimizer.step() (e.g. OneCycleLR)
+            if (
+                self.scheduler is not None
+                and not self.scheduler_step_per_epoch
+                and optimizer_step_ran
+            ):
                 self.scheduler.step()
 
             # Update metrics
             total_loss += loss.item() * batch.num_nodes
             num_samples += batch.num_nodes
-
+            
             # Update progress bar
-            pbar.set_postfix({'loss': loss.item()})
+            pbar.set_postfix({'loss': f'{loss.item():.4f}'})
 
+        pbar.close()
         avg_loss = total_loss / num_samples
         return avg_loss
 
@@ -144,16 +203,24 @@ class Trainer:
         all_preds = []
         all_targets = []
 
-        for batch in tqdm(val_loader, desc='Validation', mininterval=0.5, leave=False, disable=not sys.stdout.isatty(), ncols=80, ascii=True):
+        pbar = tqdm(val_loader, desc='Validation', leave=False,
+                    dynamic_ncols=True, position=0)
+        for batch in pbar:
             batch = batch.to(self.device)
+
+            # Get embedding indices if present
+            element_idx = getattr(batch, 'element_idx', None)
+            residue_idx = getattr(batch, 'residue_idx', None)
 
             # Forward pass with optional AMP
             if self.use_amp:
                 with torch.amp.autocast('cuda'):
-                    out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                    out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
+                                     element_idx=element_idx, residue_idx=residue_idx)
                     loss = self.criterion(out, batch.y)
             else:
-                out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+                out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
+                                 element_idx=element_idx, residue_idx=residue_idx)
                 loss = self.criterion(out, batch.y)
 
             total_loss += loss.item() * batch.num_nodes
@@ -163,6 +230,7 @@ class Trainer:
             all_preds.append(out.cpu().numpy())
             all_targets.append(batch.y.cpu().numpy())
 
+        pbar.close()
         avg_loss = total_loss / num_samples
 
         # Compute additional metrics
@@ -170,12 +238,19 @@ class Trainer:
         all_targets = np.concatenate(all_targets)
 
         mae = np.mean(np.abs(all_preds - all_targets))
-        rmse = np.sqrt(np.mean((all_preds - all_targets) ** 2))
+        mse = np.mean((all_preds - all_targets) ** 2)
+        rmse = np.sqrt(mse)
+
+        # R² score: 1 - SS_res / SS_tot
+        ss_res = np.sum((all_targets - all_preds) ** 2)
+        ss_tot = np.sum((all_targets - np.mean(all_targets)) ** 2)
+        r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
         return {
             'loss': avg_loss,
             'mae': mae,
-            'rmse': rmse
+            'rmse': rmse,
+            'r2': r2
         }
 
     def train(
@@ -213,10 +288,11 @@ class Trainer:
             self.val_losses.append(val_metrics['loss'])
             self.val_maes.append(val_metrics['mae'])
             self.val_rmses.append(val_metrics['rmse'])
+            self.val_r2s.append(val_metrics['r2'])
 
-            # Print metrics
-            print(f"Train Loss: {train_loss:.4f}")
-            print(f"Val Loss: {val_metrics['loss']:.4f}, MAE: {val_metrics['mae']:.4f}, RMSE: {val_metrics['rmse']:.4f}")
+            # Print metrics (R² highlighted as key metric)
+            print(f"Train Loss: {train_loss:.4f} | LR: {current_lr:.6f}")
+            print(f"Val Loss: {val_metrics['loss']:.4f} | R²: {val_metrics['r2']:.4f} | MAE: {val_metrics['mae']:.4f} | RMSE: {val_metrics['rmse']:.4f}")
 
             # Save best model and check early stopping
             if save_best and val_metrics['loss'] < self.best_val_loss:
@@ -257,25 +333,33 @@ class Trainer:
         """Export training history to CSV for analysis."""
         if filename is None:
             filename = os.path.join(self.checkpoint_dir, '..', 'logs', 'training_history.csv')
-        
+
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        
+
         with open(filename, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['epoch', 'train_loss', 'val_loss', 'val_mae', 'val_rmse', 'learning_rate'])
-            
+            writer.writerow(['epoch', 'train_loss', 'val_loss', 'val_r2', 'val_mae', 'val_rmse', 'learning_rate'])
+
             for i in range(len(self.train_losses)):
                 lr = self.learning_rates[i] if i < len(self.learning_rates) else None
+                r2 = self.val_r2s[i] if i < len(self.val_r2s) else None
                 writer.writerow([
                     i + 1,
                     f"{self.train_losses[i]:.6f}",
                     f"{self.val_losses[i]:.6f}",
+                    f"{r2:.6f}" if r2 is not None else "",
                     f"{self.val_maes[i]:.6f}",
                     f"{self.val_rmses[i]:.6f}",
                     f"{lr:.8f}" if lr else ""
                 ])
-        
+
         print(f"Saved training history to {filename}")
+
+        # Print summary statistics
+        if self.val_r2s:
+            best_r2_idx = np.argmax(self.val_r2s)
+            print(f"  Best val R²: {self.val_r2s[best_r2_idx]:.4f} at epoch {best_r2_idx + 1}")
+            print(f"  Final val R²: {self.val_r2s[-1]:.4f}")
 
     def save_checkpoint(self, path: str, epoch: int, metrics: Dict):
         """Save model checkpoint."""
@@ -287,6 +371,7 @@ class Trainer:
             'val_losses': self.val_losses,
             'val_maes': self.val_maes,
             'val_rmses': self.val_rmses,
+            'val_r2s': self.val_r2s,
             'metrics': metrics
         }, path)
 
@@ -299,6 +384,7 @@ class Trainer:
         self.val_losses = checkpoint['val_losses']
         self.val_maes = checkpoint.get('val_maes', [])
         self.val_rmses = checkpoint.get('val_rmses', [])
+        self.val_r2s = checkpoint.get('val_r2s', [])
         print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
 
 

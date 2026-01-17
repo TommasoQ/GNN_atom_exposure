@@ -17,13 +17,15 @@ from src.utils.config import Config
 from src.utils.visualization import plot_training_curves, plot_predictions
 
 
-def set_seed(seed: int, cudnn_benchmark: bool = False):
+def set_seed(seed: int, cudnn_benchmark: bool = False, deterministic: bool = False):
     """Set random seeds for reproducibility.
     
     Args:
         seed: Random seed value
         cudnn_benchmark: If True, enable cudnn.benchmark for faster training
                         (slightly non-deterministic but faster)
+        deterministic: If True, force fully deterministic operations
+                      (slower but 100% reproducible)
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -32,12 +34,19 @@ def set_seed(seed: int, cudnn_benchmark: bool = False):
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
     
-    if cudnn_benchmark:
+    if deterministic:
+        # Set CUBLAS workspace config for deterministic cuBLAS operations
+        os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+        # Fully deterministic - reproducible but slower
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
+    elif cudnn_benchmark:
         # Faster but slightly non-deterministic
         torch.backends.cudnn.deterministic = False
         torch.backends.cudnn.benchmark = True
     else:
-        # Fully deterministic but slower
+        # Default: deterministic cudnn but no benchmark
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
@@ -62,7 +71,8 @@ def main(args):
 
     # Set random seed with optional cudnn benchmark for faster training
     cudnn_benchmark = getattr(config.training, 'cudnn_benchmark', False)
-    set_seed(config.experiment.seed, cudnn_benchmark=cudnn_benchmark)
+    deterministic = getattr(config.training, 'deterministic', False)
+    set_seed(config.experiment.seed, cudnn_benchmark=cudnn_benchmark, deterministic=deterministic)
     
     # Check if AMP is enabled
     use_amp = getattr(config.training, 'use_amp', False)
@@ -72,20 +82,40 @@ def main(args):
     print(f"Using device: {device}")
     if use_amp and device == 'cuda':
         print("Mixed precision training (AMP): Enabled")
-    if cudnn_benchmark:
-        print("cuDNN benchmark mode: Enabled")
+    if deterministic:
+        print("Deterministic mode: Enabled (fully reproducible, slower)")
+    elif cudnn_benchmark:
+        print("cuDNN benchmark mode: Enabled (faster, slight variance)")
 
     print("\n" + "="*60)
     print("GNN PROTEIN ATOM EXPOSURE PREDICTION")
     print("="*60)
 
+    # Check if using aggregated features (need embedding config)
+    use_aggregated = False
+    if hasattr(config, 'features'):
+        use_aggregated = getattr(config.features, 'use_aggregated', False)
+
     # Create model
     print("\nCreating model...")
-    model = create_model(config.model.to_dict())
+    model_config = config.model.to_dict()
+
+    # Add embedding parameters if using aggregated features
+    if use_aggregated:
+        model_config['use_embeddings'] = True
+        model_config['num_numerical'] = 31  # Aggregated features produce 31 numerical
+        model_config['num_elements'] = 5    # C, N, O, S, OTHER
+        model_config['num_residues'] = 21   # 20 amino acids + OTHER
+        model_config['element_embed_dim'] = getattr(config.features, 'element_embed_dim', 8)
+        model_config['residue_embed_dim'] = getattr(config.features, 'residue_embed_dim', 11)
+
+    model = create_model(model_config)
     num_params = sum(p.numel() for p in model.parameters())
     conv_type = getattr(config.model, 'conv_type', 'gcn').upper()
     print(f"  Architecture: {conv_type}")
     print(f"  Layers: {config.model.num_layers}, Hidden: {config.model.hidden_channels}")
+    if use_aggregated:
+        print(f"  Features: Aggregated (31 numerical + embeddings)")
     print(f"  Parameters: {num_params:,}")
     model.to(device)
 
@@ -95,7 +125,23 @@ def main(args):
         lr=config.training.learning_rate,
         weight_decay=config.training.weight_decay
     )
-    criterion = nn.MSELoss()
+    
+    # Loss function: standard MSE or exposure-weighted MSE
+    use_weighted_loss = getattr(config.training, 'weighted_loss', False)
+    if use_weighted_loss:
+        from src.training.train import ExposureWeightedMSELoss
+        loss_alpha = getattr(config.training, 'loss_alpha', 5.0)
+        loss_threshold = getattr(config.training, 'loss_threshold', 0.5)
+        loss_power = getattr(config.training, 'loss_power', 2.0)
+        criterion = ExposureWeightedMSELoss(
+            alpha=loss_alpha,
+            threshold=loss_threshold,
+            power=loss_power
+        )
+        print(f"  Loss: Exposure-Weighted MSE (alpha={loss_alpha}, threshold={loss_threshold}, power={loss_power})")
+    else:
+        criterion = nn.MSELoss()
+        print(f"  Loss: Standard MSE")
 
     # Get scheduler type (scheduler created later for one_cycle which needs steps_per_epoch)
     scheduler_type = getattr(config.training, 'scheduler', 'reduce_on_plateau')
@@ -137,12 +183,30 @@ def main(args):
         use_amp=use_amp
     )
 
+    # Build feature configuration from YAML config (use_aggregated already set above)
+    feature_config = None
+    if hasattr(config, 'features'):
+        include_backbone_angles = getattr(config.features, 'include_backbone_angles', False)
+        feature_config = {
+            'use_reduced_features': getattr(config.features, 'use_reduced', False),
+            'include_atom_type': getattr(config.features, 'include_atom_type', True),
+            'include_geometric': getattr(config.features, 'include_geometric', True),
+            'use_aggregated': use_aggregated,
+            'include_backbone_angles': include_backbone_angles,
+        }
+        if use_aggregated:
+            print(f"\nFeature config: aggregated transforms (31 numerical + embeddings)")
+        elif include_backbone_angles:
+            print(f"\nFeature config: standard features + backbone angles (phi/psi)")
+        else:
+            print(f"\nFeature config: {feature_config}")
+
     # Training
     if not args.eval_only:
         print("\nStarting training...")
         print("\nLoading training and validation datasets...")
-        train_dataset = ProteinAtomDataset(root=config.data.root, split='train')
-        val_dataset = ProteinAtomDataset(root=config.data.root, split='val')
+        train_dataset = ProteinAtomDataset(root=config.data.root, split='train', feature_config=feature_config)
+        val_dataset = ProteinAtomDataset(root=config.data.root, split='val', feature_config=feature_config)
         print(f"  Train: {len(train_dataset)} proteins")
         print(f"  Val:   {len(val_dataset)} proteins")
 
@@ -179,7 +243,8 @@ def main(args):
                 steps_per_epoch=steps_per_epoch,
                 pct_start=pct_start,
                 div_factor=getattr(config.training, 'div_factor', 25.0),
-                final_div_factor=getattr(config.training, 'final_div_factor', 10000.0)
+                final_div_factor=getattr(config.training, 'final_div_factor', 10000.0),
+                last_epoch=-1  # Start from step 0, avoids warning
             )
 
         print("-" * 60)
@@ -207,7 +272,7 @@ def main(args):
 
     # Evaluation
     print("\nLoading test dataset...")
-    test_dataset = ProteinAtomDataset(root=config.data.root, split='test')
+    test_dataset = ProteinAtomDataset(root=config.data.root, split='test', feature_config=feature_config)
     print(f"  Test:  {len(test_dataset)} proteins")
 
     test_loader = DataLoader(

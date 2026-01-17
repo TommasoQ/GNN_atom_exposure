@@ -1,0 +1,55 @@
+# Phase 9: Extended Training (200 epochs)
+# Build on Phase 8 backbone angles success (R² = 0.607)
+# Goal: R² > 0.62 with longer training
+
+data:
+  root: dataset
+  batch_size: 32
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+features:
+  use_aggregated: false
+  use_reduced: false
+  include_atom_type: true
+  include_geometric: true
+  include_backbone_angles: true  # Keep backbone angles (92 features)
+
+model:
+  model_type: gnn
+  in_channels: 92               # 88 + 4 backbone angles
+  hidden_channels: 96
+  num_layers: 3
+  dropout: 0.35
+  conv_type: gine
+  edge_dim: 11
+
+training:
+  num_epochs: 200               # EXTENDED from 150
+  learning_rate: 5.0e-04
+  weight_decay: 1.0e-04
+  scheduler: one_cycle
+  early_stopping_patience: 30   # Increased for longer training
+  gradient_clip: 1.0
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # Adjusted OneCycle for 200 epochs
+  max_lr: 0.003
+  warmup_epochs: 20             # 10% of 200 epochs (was 15 for 150)
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  # Loss (keep what worked in Phase 8)
+  weighted_loss: true
+  loss_alpha: 1.5
+  loss_threshold: 0.8
+  loss_power: 1.0
+
+experiment:
+  name: phase9_extended_training
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

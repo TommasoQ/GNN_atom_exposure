@@ -23,12 +23,20 @@ This folder contains baseline GNN training experiments for atom exposure predict
   - Status: **Equivalent to GCN, no improvement**
   - [View results](gat_with_edges/RESULTS.md)
 
+- **`phase5_gine_weighted_loss/`** (Phase 5 baseline) ✅ **NEW**
+  - GINE: 3 layers × 96 hidden, dropout 0.35, exposure-weighted MSE (α=1.5)
+  - Scheduler: OneCycle (max_lr=0.003, warmup=15), deterministic seed=42
+  - Results: MAE 0.1829, R² 0.5684, Pearson 0.7551
+  - Status: **Current best deterministic baseline**
+  - [View results](phase5_gine_weighted_loss/RESULTS.md)
+
 ## Valid Experiments (Post-Bug-Fix)
 
 | Exp | Model | Config | MAE | R² | Pearson | Status |
 |-----|-------|--------|-----|-----|---------|--------|
 | 3.5 | GCN | 3L, 96H, d0.3 | 0.204 | 0.484 | 0.696 | ✅ Complete |
 | 3.6 | GAT | 3L, 96H, d0.3, 4h | 0.204 | 0.477 | 0.691 | ✅ Complete |
+| 5.0 | GINE + Weighted Loss | 3L, 96H, d0.35, α=1.5, OneCycle | 0.183 | **0.568** | 0.755 | ✅ Current Best |
 
 ### Key Finding
 **GCN = GAT** in performance. The attention mechanism and edge features provide no meaningful advantage for atom exposure prediction. **GCN is the recommended baseline** due to simpler architecture and faster training.

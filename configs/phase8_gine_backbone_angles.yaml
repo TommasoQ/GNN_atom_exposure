@@ -1,0 +1,58 @@
+# Phase 8: GINE with Backbone Dihedral Angles (φ/ψ)
+# Based on Phase 5 best config (R²=0.5684) + new structural features
+# New features: sin(φ), cos(φ), sin(ψ), cos(ψ) - 4 features from 3D structure
+# Total: 88 + 4 = 92 features
+# Target: R² > 0.58
+
+data:
+  root: dataset
+  batch_size: 32              # Same as Phase 5
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+# Feature configuration
+features:
+  use_aggregated: false       # Keep standard features
+  use_reduced: false          # Keep all 88 features
+  include_atom_type: true     # Keep atom type one-hot (31 features)
+  include_geometric: true     # Keep geometric features (7 features)
+  include_backbone_angles: true  # NEW: Add φ/ψ backbone angles (4 features)
+
+model:
+  model_type: gnn
+  in_channels: 92             # 88 standard + 4 backbone angles
+  hidden_channels: 96         # Same as Phase 5 best
+  num_layers: 3               # Same as Phase 5 best
+  dropout: 0.35               # Same as Phase 5 best
+  conv_type: gine             # Keep GINE (proven best)
+  edge_dim: 11                # 7 bond types + 4 numerical edge features
+
+training:
+  num_epochs: 150             # Same as Phase 5
+  learning_rate: 5.0e-04      # Base LR
+  weight_decay: 1.0e-04       # Same as Phase 5
+  scheduler: one_cycle        # Keep proven OneCycle scheduler
+  early_stopping_patience: 25
+  gradient_clip: 1.0
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # OneCycle parameters (same as Phase 5)
+  max_lr: 0.003
+  warmup_epochs: 15
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  # Loss function
+  weighted_loss: true
+  loss_alpha: 1.5
+  loss_threshold: 0.8
+  loss_power: 1.0             # Linear weighting (same as Phase 5)
+
+experiment:
+  name: phase8_gine_backbone_angles
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

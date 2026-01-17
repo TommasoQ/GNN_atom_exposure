@@ -1,0 +1,49 @@
+# Phase 8: GATv2 with Attention Mechanism
+# Hypothesis: Attention can learn which neighbors matter most for exposure prediction
+# Using our proven 88 features with GATv2 architecture
+# Target: R² > 0.57
+
+data:
+  root: dataset
+  batch_size: 16              # Smaller batches for more gradient updates
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+# Keep full 88 features (proven superior to aggregated approach)
+features:
+  use_aggregated: false
+  use_reduced: false
+  include_atom_type: true
+  include_geometric: true
+
+model:
+  model_type: gnn
+  in_channels: 88             # Our full feature set
+  hidden_channels: 128        # Enough capacity for 4 attention heads (32 each)
+  num_layers: 4               # Deeper network for longer-range interactions
+  dropout: 0.15               # Lower dropout - attention provides implicit regularization
+  conv_type: gatv2            # GATv2 with improved attention mechanism
+  edge_dim: 11                # 7 bond types + 4 numerical edge features
+
+training:
+  num_epochs: 150             # Moderate training length
+  learning_rate: 5.0e-04      # Base LR for Adam
+  weight_decay: 1.0e-05       # Light regularization
+  scheduler: cosine_annealing # Try cosine instead of OneCycle
+  min_lr: 1.0e-06             # Minimum LR for cosine annealing
+  early_stopping_patience: 30 # More patience for attention to converge
+  gradient_clip: 1.0
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # Standard MSE first to establish baseline
+  weighted_loss: false
+
+experiment:
+  name: phase8_gatv2_attention
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

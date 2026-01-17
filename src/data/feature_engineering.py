@@ -10,6 +10,12 @@ from typing import List, Dict, Tuple, Optional
 from pathlib import Path
 import pickle
 
+# Import backbone angle calculation
+try:
+    from .backbone_angles import extract_backbone_angles, get_backbone_feature_names
+except ImportError:
+    from backbone_angles import extract_backbone_angles, get_backbone_feature_names
+
 
 # ============================================================================
 # FEATURE SELECTION
@@ -65,6 +71,58 @@ SELECTED_NUMERICAL_FEATURES = [
 ]
 
 # Total: 24 numerical features (reduced from 34)
+
+
+# Reduced numerical features (further redundancy removal based on correlation analysis)
+# Dropped: transmembranetendency, meiler:dim_4, hphob_eisenberg, hphob_guy
+# (all |r| > 0.90 correlated with hphob_rose or polaritygrantham)
+REDUCED_NUMERICAL_FEATURES = [
+    # Core features (high correlation)
+    'b_factor',
+    'hbond_donors',
+    'hbond_acceptors',
+
+    # Meiler descriptors (dropped dim_4 - r=0.94 with transmembranetendency)
+    'meiler:dim_1',
+    'meiler:dim_5',
+    'meiler:dim_7',
+
+    # Hydrophobicity - keep only hphob_rose (best target correlation in cluster)
+    'expasy:hphob_rose',
+    # Dropped: hphob_eisenberg (r=0.90 with transmembranetendency)
+    # Dropped: hphob_guy (r=-0.93 with hphob_rose)
+
+    # Structural propensities
+    'expasy:buriedresidues',
+    'expasy:accessibleresidues',
+    'expasy:averageburied',
+    'expasy:averageflexibility',
+    'expasy:totalbeta_strand',
+    'expasy:parallelbeta_strand',
+    # Dropped: transmembranetendency (r=-0.95 with polaritygrantham)
+
+    # Polarity - keep polaritygrantham (representative of polarity cluster)
+    'expasy:polarityzimmerman',
+    'expasy:polaritygrantham',
+    'expasy:bulkiness',
+    'expasy:ratioside',
+
+    # Secondary structure propensities
+    'expasy:beta_turnfasman',
+    'expasy:beta_turnroux',
+    'expasy:coilroux',
+]
+# Total: 20 numerical features (reduced from 24)
+
+
+# Reduced geometric feature indices (keep: min_dist, std_dist, radial_position)
+# Original indices: 0=mean_dist, 1=min_dist, 2=max_dist, 3=std_dist,
+#                   4=3rd_nearest_dist, 5=dist_to_center, 6=radial_position
+# Keep: min_dist (1), std_dist (3), radial_position (6)
+# Dropped: mean_dist, max_dist, 3rd_nearest_dist (all |r| > 0.90 correlated)
+#          dist_to_center (r=0.89 with radial_position)
+REDUCED_GEOMETRIC_INDICES = [1, 3, 6]
+REDUCED_GEOMETRIC_NAMES = ['geom_min_dist', 'geom_std_dist', 'geom_radial_position']
 
 
 # ============================================================================
@@ -130,28 +188,37 @@ def encode_residues(residues: pd.Series) -> np.ndarray:
     return one_hot_encode(residues, STANDARD_RESIDUES, 'OTHER')
 
 
-def encode_categorical_features(nodes_df: pd.DataFrame) -> np.ndarray:
+def encode_categorical_features(nodes_df: pd.DataFrame,
+                                 include_atom_type: bool = True) -> Tuple[np.ndarray, List[str]]:
     """
-    Encode all categorical features from a nodes DataFrame.
+    Encode categorical features from a nodes DataFrame.
 
     Args:
         nodes_df: DataFrame with columns 'atom_type', 'element_symbol', 'residue_name'
+        include_atom_type: Whether to include atom type one-hot encoding (31 features)
 
     Returns:
-        Array of shape (n_atoms, n_categorical_features)
+        Tuple of (encoded features array, feature names list)
     """
-    atom_encoded = encode_atom_types(nodes_df['atom_type'])
+    features_list = []
+    names_list = []
+
+    if include_atom_type:
+        atom_encoded = encode_atom_types(nodes_df['atom_type'])
+        features_list.append(atom_encoded)
+        names_list.extend([f'atom_{cat}' for cat in STANDARD_ATOM_TYPES])
+
     element_encoded = encode_elements(nodes_df['element_symbol'])
+    features_list.append(element_encoded)
+    names_list.extend([f'element_{cat}' for cat in STANDARD_ELEMENTS])
+
     residue_encoded = encode_residues(nodes_df['residue_name'])
+    features_list.append(residue_encoded)
+    names_list.extend([f'residue_{cat}' for cat in STANDARD_RESIDUES])
 
-    # Concatenate all categorical features
-    categorical_features = np.concatenate([
-        atom_encoded,
-        element_encoded,
-        residue_encoded
-    ], axis=1)
+    categorical_features = np.concatenate(features_list, axis=1)
 
-    return categorical_features
+    return categorical_features, names_list
 
 
 # ============================================================================
@@ -302,9 +369,13 @@ def extract_all_features(nodes_df: pd.DataFrame,
                          edge_index: np.ndarray,
                          edge_distances: Optional[np.ndarray] = None,
                          normalizer: Optional[FeatureNormalizer] = None,
-                         normalize: bool = True) -> Tuple[np.ndarray, List[str]]:
+                         normalize: bool = True,
+                         use_reduced_features: bool = False,
+                         include_atom_type: bool = True,
+                         include_geometric: bool = True,
+                         include_backbone_angles: bool = False) -> Tuple[np.ndarray, List[str]]:
     """
-    Extract and combine all features: numerical, categorical, and geometric.
+    Extract and combine all features: numerical, categorical, geometric, and backbone angles.
 
     Args:
         nodes_df: DataFrame with node features
@@ -312,12 +383,20 @@ def extract_all_features(nodes_df: pd.DataFrame,
         edge_distances: Optional precomputed edge distances
         normalizer: Optional fitted normalizer for numerical features
         normalize: Whether to normalize numerical features
+        use_reduced_features: Use reduced numerical/geometric features (removes redundancy)
+        include_atom_type: Include atom type one-hot encoding (31 features)
+        include_geometric: Include geometric features
+        include_backbone_angles: Include backbone dihedral angles (phi/psi as sin/cos, 4 features)
 
     Returns:
         Tuple of (features_array, feature_names)
     """
-    # 1. Extract selected numerical features
-    numerical_features = nodes_df[SELECTED_NUMERICAL_FEATURES].values.astype(np.float32)
+    features_list = []
+    feature_names = []
+
+    # 1. Extract numerical features
+    numerical_feature_list = REDUCED_NUMERICAL_FEATURES if use_reduced_features else SELECTED_NUMERICAL_FEATURES
+    numerical_features = nodes_df[numerical_feature_list].values.astype(np.float32)
 
     # Normalize if requested
     if normalize:
@@ -329,62 +408,116 @@ def extract_all_features(nodes_df: pd.DataFrame,
             # Use provided normalizer
             numerical_features = normalizer.transform(numerical_features)
 
+    features_list.append(numerical_features)
+    feature_names.extend(numerical_feature_list)
+
     # 2. Extract categorical features
-    categorical_features = encode_categorical_features(nodes_df)
+    categorical_features, categorical_names = encode_categorical_features(
+        nodes_df, include_atom_type=include_atom_type
+    )
+    features_list.append(categorical_features)
+    feature_names.extend(categorical_names)
 
     # 3. Extract geometric features
-    coords = nodes_df[['x_coord', 'y_coord', 'z_coord']].values
-    geometric_features = compute_geometric_features(coords, edge_index, edge_distances)
+    if include_geometric:
+        coords = nodes_df[['x_coord', 'y_coord', 'z_coord']].values
+        geometric_features = compute_geometric_features(coords, edge_index, edge_distances)
 
-    # 4. Concatenate all features
-    all_features = np.concatenate([
-        numerical_features,
-        categorical_features,
-        geometric_features
-    ], axis=1)
+        if use_reduced_features:
+            # Keep only non-redundant geometric features
+            geometric_features = geometric_features[:, REDUCED_GEOMETRIC_INDICES]
+            features_list.append(geometric_features)
+            feature_names.extend(REDUCED_GEOMETRIC_NAMES)
+        else:
+            features_list.append(geometric_features)
+            full_geometric_names = [
+                'geom_mean_dist', 'geom_min_dist', 'geom_max_dist', 'geom_std_dist',
+                'geom_3rd_nearest_dist', 'geom_dist_to_center', 'geom_radial_position'
+            ]
+            feature_names.extend(full_geometric_names)
 
-    # 5. Generate feature names
-    numerical_names = SELECTED_NUMERICAL_FEATURES
-    categorical_names = (
-        [f'atom_{cat}' for cat in STANDARD_ATOM_TYPES] +
-        [f'element_{cat}' for cat in STANDARD_ELEMENTS] +
-        [f'residue_{cat}' for cat in STANDARD_RESIDUES]
-    )
-    geometric_names = [
-        'geom_mean_dist', 'geom_min_dist', 'geom_max_dist', 'geom_std_dist',
-        'geom_3rd_nearest_dist',  # Removed geom_nearest_dist (duplicate of geom_min_dist)
-        'geom_dist_to_center', 'geom_radial_position'
-    ]
-    feature_names = numerical_names + categorical_names + geometric_names
+    # 4. Extract backbone dihedral angles (phi/psi as sin/cos)
+    if include_backbone_angles:
+        backbone_features = extract_backbone_angles(nodes_df)
+        features_list.append(backbone_features)
+        feature_names.extend(get_backbone_feature_names())
+
+    # 5. Concatenate all features
+    all_features = np.concatenate(features_list, axis=1)
 
     return all_features, feature_names
 
 
-def get_feature_dimensions() -> Dict[str, int]:
+def get_feature_dimensions(use_reduced_features: bool = False,
+                           include_atom_type: bool = True,
+                           include_geometric: bool = True,
+                           include_backbone_angles: bool = False) -> Dict[str, int]:
     """
-    Get the dimensions of each feature group.
+    Get the dimensions of each feature group based on configuration.
+
+    Args:
+        use_reduced_features: Use reduced numerical/geometric features
+        include_atom_type: Include atom type one-hot encoding
+        include_geometric: Include geometric features
+        include_backbone_angles: Include backbone dihedral angles (phi/psi as sin/cos)
 
     Returns:
         Dictionary with feature group names and their dimensions
     """
+    numerical_count = len(REDUCED_NUMERICAL_FEATURES) if use_reduced_features else len(SELECTED_NUMERICAL_FEATURES)
+    atom_type_count = len(STANDARD_ATOM_TYPES) if include_atom_type else 0
+    element_count = len(STANDARD_ELEMENTS)
+    residue_count = len(STANDARD_RESIDUES)
+
+    if include_geometric:
+        geometric_count = len(REDUCED_GEOMETRIC_INDICES) if use_reduced_features else 7
+    else:
+        geometric_count = 0
+
+    backbone_count = 4 if include_backbone_angles else 0  # sin_phi, cos_phi, sin_psi, cos_psi
+
+    total = numerical_count + atom_type_count + element_count + residue_count + geometric_count + backbone_count
+
     return {
-        'numerical': len(SELECTED_NUMERICAL_FEATURES),
-        'atom_types': len(STANDARD_ATOM_TYPES),
-        'elements': len(STANDARD_ELEMENTS),
-        'residues': len(STANDARD_RESIDUES),
-        'geometric': 7,  # Reduced from 8 (removed geom_nearest_dist duplicate)
-        'total': (len(SELECTED_NUMERICAL_FEATURES) +  # 24
-                 len(STANDARD_ATOM_TYPES) +           # 31
-                 len(STANDARD_ELEMENTS) +             # 5 (includes OTHER)
-                 len(STANDARD_RESIDUES) +             # 21 (includes OTHER)
-                 7)                                   # = 88 total
+        'numerical': numerical_count,
+        'atom_types': atom_type_count,
+        'elements': element_count,
+        'residues': residue_count,
+        'geometric': geometric_count,
+        'backbone_angles': backbone_count,
+        'total': total
     }
 
 
 if __name__ == '__main__':
     # Print feature dimensions for verification
+    print("=" * 60)
+    print("Feature Dimensions by Configuration")
+    print("=" * 60)
+
+    # Default (full features)
     dims = get_feature_dimensions()
-    print("Feature Dimensions:")
+    print(f"\nFull features (default):")
+    print(f"  Numerical: {dims['numerical']}")
+    print(f"  Atom types: {dims['atom_types']}")
+    print(f"  Elements: {dims['elements']}")
+    print(f"  Residues: {dims['residues']}")
+    print(f"  Geometric: {dims['geometric']}")
+    print(f"  TOTAL: {dims['total']}")
+
+    # Reduced features with atom_type
+    dims = get_feature_dimensions(use_reduced_features=True, include_atom_type=True)
+    print(f"\nReduced features + atom_type:")
+    print(f"  Numerical: {dims['numerical']}")
+    print(f"  Atom types: {dims['atom_types']}")
+    print(f"  Elements: {dims['elements']}")
+    print(f"  Residues: {dims['residues']}")
+    print(f"  Geometric: {dims['geometric']}")
+    print(f"  TOTAL: {dims['total']}")
+
+    # Reduced features without atom_type (matches colleague's 50)
+    dims = get_feature_dimensions(use_reduced_features=True, include_atom_type=False)
+    print(f"\nReduced features - atom_type (colleague's setup):")
     print(f"  Numerical: {dims['numerical']}")
     print(f"  Atom types: {dims['atom_types']}")
     print(f"  Elements: {dims['elements']}")
