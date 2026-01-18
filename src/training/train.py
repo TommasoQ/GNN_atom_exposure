@@ -355,12 +355,6 @@ class Trainer:
 
         print(f"Saved training history to {filename}")
 
-        # Print summary statistics
-        if self.val_r2s:
-            best_r2_idx = np.argmax(self.val_r2s)
-            print(f"  Best val R²: {self.val_r2s[best_r2_idx]:.4f} at epoch {best_r2_idx + 1}")
-            print(f"  Final val R²: {self.val_r2s[-1]:.4f}")
-
     def save_checkpoint(self, path: str, epoch: int, metrics: Dict):
         """Save model checkpoint."""
         torch.save({

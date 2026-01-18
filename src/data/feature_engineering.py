@@ -237,19 +237,30 @@ def compute_geometric_features(coords: np.ndarray,
         edge_distances: Optional array of shape (n_edges,) with precomputed distances
 
     Returns:
-        Array of shape (n_atoms, n_geometric_features)
+        Array of shape (n_atoms, 8) with geometric features
     """
+    from scipy.spatial.distance import cdist
+
     n_atoms = coords.shape[0]
 
-    # Initialize features array (7 features total - removed duplicate geom_nearest_dist)
-    geom_features = np.zeros((n_atoms, 7), dtype=np.float32)
+    # Initialize features array (8 features total)
+    geom_features = np.zeros((n_atoms, 8), dtype=np.float32)
 
     # Compute protein center of mass
     center_of_mass = coords.mean(axis=0)
 
-    # For each atom, compute geometric features
+    # Compute pairwise distances for contact_count_10A (Feature 8)
+    # Using cdist for efficiency - computes all pairwise distances at once
+    pairwise_distances = cdist(coords, coords, metric='euclidean')
+
+    # Feature 8: Contact count at 10Å (count of atoms within 10Å, excluding self)
+    # Subtract 1 to exclude self-distance (which is 0)
+    contact_counts = (pairwise_distances < 10.0).sum(axis=1) - 1
+    geom_features[:, 7] = contact_counts.astype(np.float32)
+
+    # For each atom, compute remaining geometric features
     for i in range(n_atoms):
-        # Find neighbors
+        # Find neighbors from graph structure
         neighbors_mask = (edge_index[0] == i)
         neighbor_indices = edge_index[1][neighbors_mask]
 
@@ -278,7 +289,6 @@ def compute_geometric_features(coords: np.ndarray,
         geom_features[i, 3] = distances.std() if len(distances) > 1 else 0.0
 
         # Feature 5: Distance to 3rd nearest neighbor (if exists)
-        # NOTE: Removed geom_nearest_dist (Feature 5) - perfect duplicate of geom_min_dist (r=1.0)
         sorted_dist = np.sort(distances)
         geom_features[i, 4] = sorted_dist[min(2, len(sorted_dist)-1)]
 
@@ -432,7 +442,8 @@ def extract_all_features(nodes_df: pd.DataFrame,
             features_list.append(geometric_features)
             full_geometric_names = [
                 'geom_mean_dist', 'geom_min_dist', 'geom_max_dist', 'geom_std_dist',
-                'geom_3rd_nearest_dist', 'geom_dist_to_center', 'geom_radial_position'
+                'geom_3rd_nearest_dist', 'geom_dist_to_center', 'geom_radial_position',
+                'geom_contact_count_10A'
             ]
             feature_names.extend(full_geometric_names)
 
@@ -470,7 +481,7 @@ def get_feature_dimensions(use_reduced_features: bool = False,
     residue_count = len(STANDARD_RESIDUES)
 
     if include_geometric:
-        geometric_count = len(REDUCED_GEOMETRIC_INDICES) if use_reduced_features else 7
+        geometric_count = len(REDUCED_GEOMETRIC_INDICES) if use_reduced_features else 8  # 7 original + contact_count_10A
     else:
         geometric_count = 0
 

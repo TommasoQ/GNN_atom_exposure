@@ -1,6 +1,6 @@
 """
 PyTorch Geometric Dataset for Protein Atom Exposure Prediction
-FIXED VERSION - Phase 2 + Enhanced Edge Features
+FIXED VERSION - Phase 2 + Enhanced Edge Features + Optimized
 """
 import os
 import pickle
@@ -8,8 +8,10 @@ import pandas as pd
 import torch
 from torch_geometric.data import Data, Dataset
 from pathlib import Path
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Dict, Any
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 
 # Bond types for edge feature extraction (7 types, one-hot encoded)
 BOND_TYPES = ['covalent', 'peptide_bond', 'hydrophobic', 'aromatic', 'hbond', 'ionic', 'ring']
@@ -17,39 +19,42 @@ BOND_TYPES = ['covalent', 'peptide_bond', 'hydrophobic', 'aromatic', 'hbond', 'i
 
 def extract_edge_features(edges_df: pd.DataFrame) -> np.ndarray:
     """
-    Extract 11 edge features from edge DataFrame.
-    
-    Features (11 total):
+    Extract 12 edge features from edge DataFrame (VECTORIZED).
+
+    Features (12 total):
         - 7 bond type one-hot features: covalent, peptide_bond, hydrophobic, aromatic, hbond, ionic, ring
         - 4 numerical features: distance, bond_length, normalized_distance, relative_distance
-    
+        - 1 radius graph feature: in_radius (1 if distance < 8.0Å, 0 otherwise)
+
     Args:
         edges_df: DataFrame with 'kind', 'distance', 'bond_length' columns
-        
+
     Returns:
-        np.ndarray of shape (num_edges, 11)
+        np.ndarray of shape (num_edges, 12)
     """
     n_edges = len(edges_df)
-    edge_features = np.zeros((n_edges, 11), dtype=np.float32)
-    
-    for i, (_, edge) in enumerate(edges_df.iterrows()):
-        # Parse bond types (lowercase normalization)
-        kind = str(edge['kind']).lower() if pd.notna(edge['kind']) else ''
-        
-        # 7 bond type one-hot features (indices 0-6)
-        for j, bond_type in enumerate(BOND_TYPES):
-            if bond_type in kind:
-                edge_features[i, j] = 1.0
-        
-        # 4 numerical features (indices 7-10)
-        distance = edge['distance'] if pd.notna(edge['distance']) else 0.0
-        bond_length = edge['bond_length'] if pd.notna(edge['bond_length']) else 0.0
-        
-        edge_features[i, 7] = distance  # Raw distance
-        edge_features[i, 8] = bond_length  # Bond length (0 if not covalent)
-        edge_features[i, 9] = distance / 10.0  # Normalized distance (typical max ~10Å)
-        edge_features[i, 10] = distance - 3.8  # Relative to avg Cα-Cα distance (3.8Å)
-    
+    edge_features = np.zeros((n_edges, 12), dtype=np.float32)
+
+    # Vectorized: Normalize 'kind' column to lowercase strings
+    kind_series = edges_df['kind'].fillna('').astype(str).str.lower()
+
+    # Vectorized: 7 bond type one-hot features (indices 0-6)
+    for j, bond_type in enumerate(BOND_TYPES):
+        edge_features[:, j] = kind_series.str.contains(bond_type, regex=False).astype(np.float32)
+
+    # Vectorized: Extract numerical columns with NaN handling
+    distance = edges_df['distance'].fillna(0.0).values.astype(np.float32)
+    bond_length = edges_df['bond_length'].fillna(0.0).values.astype(np.float32)
+
+    # Vectorized: 4 numerical features (indices 7-10)
+    edge_features[:, 7] = distance                    # Raw distance
+    edge_features[:, 8] = bond_length                 # Bond length (0 if not covalent)
+    edge_features[:, 9] = distance / 10.0             # Normalized distance
+    edge_features[:, 10] = distance - 3.8             # Relative to avg Cα-Cα
+
+    # Vectorized: Radius graph feature (index 11)
+    edge_features[:, 11] = (distance < 8.0).astype(np.float32)
+
     return edge_features
 
 
@@ -79,6 +84,118 @@ except ImportError:
         AggregatedFeatureNormalizer,
         get_aggregated_feature_dimensions
     )
+
+
+def _process_single_protein(args: tuple) -> str:
+    """
+    Helper function for parallel protein processing.
+    Must be at module level for multiprocessing to pickle it.
+
+    Args:
+        args: Tuple of (pdb_id, config_dict) where config_dict contains all needed parameters
+
+    Returns:
+        pdb_id if successful, None otherwise
+    """
+    pdb_id, config = args
+
+    try:
+        root = config['root']
+        processed_dir = config['processed_dir']
+        depth_indexes = config['depth_indexes']
+        normalizer = config['normalizer']
+        normalize_features = config['normalize_features']
+        use_reduced_features = config['use_reduced_features']
+        include_atom_type = config['include_atom_type']
+        include_geometric = config['include_geometric']
+        include_backbone_angles = config['include_backbone_angles']
+
+        protein_dir = os.path.join(root, 'sadic_data', pdb_id)
+
+        # Load nodes
+        nodes_df = pd.read_csv(
+            os.path.join(protein_dir, f'{pdb_id}__graphein__ATOM_nodes.csv'),
+            index_col=0
+        )
+
+        # Load edges
+        edges_df = pd.read_csv(
+            os.path.join(protein_dir, f'{pdb_id}__graphein__ATOM_edges.csv'),
+            index_col=0
+        )
+
+        # Create node ID to index mapping
+        node_ids = nodes_df['original_index'].values
+        node_to_idx = {node_id: idx for idx, node_id in enumerate(node_ids)}
+
+        # Vectorized: Create edge index and filter valid edges
+        src_ids = edges_df['idx_0'].values
+        dst_ids = edges_df['idx_1'].values
+
+        map_func = np.vectorize(lambda x: node_to_idx.get(x, -1))
+        src_indices = map_func(src_ids)
+        dst_indices = map_func(dst_ids)
+
+        valid_mask = (src_indices >= 0) & (dst_indices >= 0)
+        valid_edge_indices = np.where(valid_mask)[0]
+
+        if len(valid_edge_indices) > 0:
+            edge_index_np = np.stack([src_indices[valid_mask], dst_indices[valid_mask]], axis=0)
+        else:
+            edge_index_np = np.zeros((2, 0), dtype=np.int64)
+
+        # Extract edge features
+        if len(valid_edge_indices) > 0:
+            valid_edges_df = edges_df.iloc[valid_edge_indices]
+            edge_features = extract_edge_features(valid_edges_df)
+        else:
+            edge_features = np.zeros((0, 12), dtype=np.float32)
+
+        edge_distances_np = edge_features[:, 7] if len(edge_features) > 0 else np.zeros(0)
+
+        # Extract node features
+        features, feature_names = extract_all_features(
+            nodes_df=nodes_df,
+            edge_index=edge_index_np,
+            edge_distances=edge_distances_np,
+            normalizer=normalizer,
+            normalize=normalize_features,
+            use_reduced_features=use_reduced_features,
+            include_atom_type=include_atom_type,
+            include_geometric=include_geometric,
+            include_backbone_angles=include_backbone_angles
+        )
+        x = torch.tensor(features, dtype=torch.float)
+
+        edge_index = torch.tensor(edge_index_np, dtype=torch.long)
+        edge_attr = torch.tensor(edge_features, dtype=torch.float)
+
+        # Extract targets
+        depth_dict = depth_indexes[pdb_id]
+        y = []
+        for atom_name in node_ids:
+            if atom_name not in depth_dict:
+                return None  # Skip problematic proteins
+            y.append(depth_dict[atom_name])
+        y = torch.tensor(y, dtype=torch.float)
+
+        # Create Data object
+        data = Data(
+            x=x,
+            edge_index=edge_index,
+            edge_attr=edge_attr,
+            y=y,
+            pdb_id=pdb_id,
+            num_nodes=len(nodes_df)
+        )
+
+        # Save to disk
+        torch.save(data, os.path.join(processed_dir, f'{pdb_id}.pt'))
+        return pdb_id
+
+    except Exception as e:
+        print(f"Error processing {pdb_id}: {e}")
+        return None
 
 
 class ProteinAtomDataset(Dataset):
@@ -154,8 +271,10 @@ class ProteinAtomDataset(Dataset):
                     depth_indexes_df = pickle.load(f)
 
                 if isinstance(depth_indexes_df, pd.DataFrame):
+                    from tqdm import tqdm
                     ProteinAtomDataset._depth_indexes_cache = {}
-                    for pdb_id in depth_indexes_df['pdb_id'].unique():
+                    unique_pdb_ids = depth_indexes_df['pdb_id'].unique()
+                    for pdb_id in tqdm(unique_pdb_ids, desc="Converting depth_indexes", unit="protein"):
                         pdb_data = depth_indexes_df[depth_indexes_df['pdb_id'] == pdb_id]
                         ProteinAtomDataset._depth_indexes_cache[pdb_id] = dict(zip(
                             pdb_data['atom_name'],
@@ -345,12 +464,16 @@ class ProteinAtomDataset(Dataset):
         """Download dataset (not needed as data is already present)."""
         pass
 
-    def process(self):
+    def process(self, parallel: bool = True, max_workers: int = None):
         """
         Process raw data into PyTorch Geometric Data objects.
 
         Processes ALL valid proteins (not just current split) to enable caching.
         Each split accesses its subset via indexing.
+
+        Args:
+            parallel: Use parallel processing (default: True)
+            max_workers: Number of worker processes (default: CPU count - 1)
         """
         from tqdm import tqdm
 
@@ -359,16 +482,69 @@ class ProteinAtomDataset(Dataset):
         valid_pdb_ids = [pid for pid in all_pdb_ids if pid in self.depth_indexes]
 
         print(f"Processing {len(valid_pdb_ids)} proteins (shared across all splits)...")
-        for pdb_id in tqdm(valid_pdb_ids, desc="Processing proteins", unit="protein"):
-            data = self._load_protein_graph(pdb_id)
 
-            if self.pre_filter is not None and not self.pre_filter(data):
-                continue
+        # Prepare config dict for parallel processing (only non-aggregated mode)
+        if parallel and not self.use_aggregated:
+            if max_workers is None:
+                max_workers = max(1, multiprocessing.cpu_count() - 1)
 
-            if self.pre_transform is not None:
-                data = self.pre_transform(data)
+            config = {
+                'root': self.root,
+                'processed_dir': self.processed_dir,
+                'depth_indexes': self.depth_indexes,
+                'normalizer': self.normalizer,
+                'normalize_features': self.normalize_features,
+                'use_reduced_features': self.use_reduced_features,
+                'include_atom_type': self.include_atom_type,
+                'include_geometric': self.include_geometric,
+                'include_backbone_angles': self.include_backbone_angles
+            }
 
-            torch.save(data, os.path.join(self.processed_dir, f'{pdb_id}.pt'))
+            # Create argument tuples for parallel processing
+            args_list = [(pdb_id, config) for pdb_id in valid_pdb_ids]
+
+            print(f"Using {max_workers} parallel workers...")
+            successful = 0
+            failed = 0
+
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                futures = {executor.submit(_process_single_protein, args): args[0]
+                          for args in args_list}
+
+                # Process results with progress bar
+                for future in tqdm(as_completed(futures), total=len(futures),
+                                  desc="Processing proteins", unit="protein"):
+                    pdb_id = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            successful += 1
+                        else:
+                            failed += 1
+                    except Exception as e:
+                        print(f"Error processing {pdb_id}: {e}")
+                        failed += 1
+
+            print(f"Completed: {successful} successful, {failed} failed")
+
+        else:
+            # Sequential processing (fallback or for aggregated mode)
+            if self.use_aggregated:
+                print("Using sequential processing (aggregated mode)...")
+            else:
+                print("Using sequential processing...")
+
+            for pdb_id in tqdm(valid_pdb_ids, desc="Processing proteins", unit="protein"):
+                data = self._load_protein_graph(pdb_id)
+
+                if self.pre_filter is not None and not self.pre_filter(data):
+                    continue
+
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
+
+                torch.save(data, os.path.join(self.processed_dir, f'{pdb_id}.pt'))
 
     def len(self) -> int:
         """Return number of samples in dataset."""
@@ -419,30 +595,34 @@ class ProteinAtomDataset(Dataset):
             index_col=0
         )
 
-        # Create node ID to index mapping
+        # Create node ID to index mapping (vectorized)
         node_ids = nodes_df['original_index'].values
         node_to_idx = {node_id: idx for idx, node_id in enumerate(node_ids)}
 
-        # Create edge index and filter valid edges
-        edge_index = []
-        valid_edge_indices = []  # Track which edges are valid for feature extraction
+        # Vectorized: Create edge index and filter valid edges
+        src_ids = edges_df['idx_0'].values
+        dst_ids = edges_df['idx_1'].values
 
-        for i, (_, edge) in enumerate(edges_df.iterrows()):
-            src = node_to_idx.get(edge['idx_0'])
-            dst = node_to_idx.get(edge['idx_1'])
+        # Map node IDs to indices (vectorized with np.vectorize)
+        map_func = np.vectorize(lambda x: node_to_idx.get(x, -1))
+        src_indices = map_func(src_ids)
+        dst_indices = map_func(dst_ids)
 
-            if src is not None and dst is not None:
-                edge_index.append([src, dst])
-                valid_edge_indices.append(i)
+        # Filter valid edges (both src and dst exist in node mapping)
+        valid_mask = (src_indices >= 0) & (dst_indices >= 0)
+        valid_edge_indices = np.where(valid_mask)[0]
 
-        edge_index_np = np.array(edge_index).T if len(edge_index) > 0 else np.zeros((2, 0), dtype=np.int64)
+        if len(valid_edge_indices) > 0:
+            edge_index_np = np.stack([src_indices[valid_mask], dst_indices[valid_mask]], axis=0)
+        else:
+            edge_index_np = np.zeros((2, 0), dtype=np.int64)
         
-        # Extract 11-dimensional edge features (7 bond types + 4 numerical)
+        # Extract 12-dimensional edge features (7 bond types + 4 numerical + 1 radius graph)
         if len(valid_edge_indices) > 0:
             valid_edges_df = edges_df.iloc[valid_edge_indices]
             edge_features = extract_edge_features(valid_edges_df)
         else:
-            edge_features = np.zeros((0, 11), dtype=np.float32)
+            edge_features = np.zeros((0, 12), dtype=np.float32)
         
         # Also extract distances for node feature computation (geometric features)
         edge_distances_np = edge_features[:, 7] if len(edge_features) > 0 else np.zeros(0)

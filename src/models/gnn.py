@@ -105,11 +105,12 @@ class AtomExposureGNN(nn.Module):
                 # GATv2 - improved attention mechanism with edge features
                 conv = GATv2Conv(
                     hidden_channels,
-                    hidden_channels // 4,
+                    hidden_channels // 4,  # 4 heads × 32 = 128 output
                     heads=4,
                     dropout=dropout,
                     edge_dim=edge_dim,
-                    add_self_loops=False  # Important when using edge features
+                    add_self_loops=False,  # Important when using edge features
+                    residual=True  # Internal skip connection for better gradient flow
                 )
             else:
                 raise ValueError(f"Unknown conv_type: {conv_type}")
@@ -172,7 +173,11 @@ class AtomExposureGNN(nn.Module):
             x = bn(x)
 
             # Activation and Dropout
-            x = F.relu(x)
+            # ELU for GATv2 (better gradient flow with attention), ReLU for others
+            if self.conv_type == 'gatv2':
+                x = F.elu(x)
+            else:
+                x = F.relu(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
 
             # Residual connection

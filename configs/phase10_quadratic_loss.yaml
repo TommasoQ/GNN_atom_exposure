@@ -1,0 +1,56 @@
+# Phase 10: Quadratic Weighted Loss
+# Build on Phase 9 (R² = 0.6028 test)
+# NEW: Stronger emphasis on highly exposed atoms with quadratic weighting
+# Goal: Reduce RMSE/MAE gap by better predicting extreme values
+
+data:
+  root: dataset
+  batch_size: 32
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+features:
+  use_aggregated: false
+  use_reduced: false
+  include_atom_type: true
+  include_geometric: true
+  include_backbone_angles: true  # Keep backbone angles (92 features)
+
+model:
+  model_type: gnn
+  in_channels: 92               # 88 + 4 backbone angles
+  hidden_channels: 96
+  num_layers: 3
+  dropout: 0.35
+  conv_type: gine
+  edge_dim: 11
+
+training:
+  num_epochs: 200
+  learning_rate: 5.0e-04
+  weight_decay: 1.0e-04
+  scheduler: one_cycle
+  early_stopping_patience: 30
+  gradient_clip: 1.0
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # OneCycle params (same as Phase 9)
+  max_lr: 0.003
+  warmup_epochs: 20
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  # NEW: Quadratic weighted loss
+  weighted_loss: true
+  loss_alpha: 3.0        # INCREASED from 1.5
+  loss_threshold: 0.8    # Keep at 0.8
+  loss_power: 2.0        # QUADRATIC (was 1.0 linear)
+
+experiment:
+  name: phase10_quadratic_loss
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

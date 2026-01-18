@@ -287,7 +287,6 @@ def main(args):
     print("-" * 60)
     # evaluate_model now returns metrics and predictions to avoid a second pass
     test_metrics, y_true, y_pred = evaluate_model(trainer.model, test_loader, device)
-    print(f"FINAL_RESULT: r2={test_metrics['r2']:.4f}")
     print_metrics(test_metrics)
 
     # Generate predictions and visualizations
