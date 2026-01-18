@@ -64,3 +64,5 @@ dataset/*.pkl
 tmp/
 temp/
 *.tmp
+tmpclaude-*
+nul
