@@ -14,7 +14,47 @@ from src.models.gnn import create_model
 from src.training.train import Trainer
 from src.training.evaluate import evaluate_model, print_metrics
 from src.utils.config import Config
-from src.utils.visualization import plot_training_curves, plot_predictions
+from src.utils.visualization import (
+    plot_training_curves, plot_training_curves_extended, plot_predictions,
+    plot_error_distribution, plot_error_by_exposure_range
+)
+import json
+from datetime import datetime
+
+
+def save_test_metrics(metrics: dict, config, checkpoint_epoch: int, save_path: str):
+    """Save test metrics to JSON file for permanent record."""
+    # Convert numpy float32 to Python float for JSON serialization
+    serializable_metrics = {k: float(v) for k, v in metrics.items()}
+    output = {
+        'timestamp': datetime.now().isoformat(),
+        'test_metrics': serializable_metrics,
+        'checkpoint_epoch': checkpoint_epoch,
+        'config': {
+            'experiment_name': getattr(config.experiment, 'name', 'unknown'),
+            'model': {
+                'conv_type': getattr(config.model, 'conv_type', 'unknown'),
+                'hidden_channels': getattr(config.model, 'hidden_channels', None),
+                'num_layers': getattr(config.model, 'num_layers', None),
+                'in_channels': getattr(config.model, 'in_channels', None),
+                'edge_dim': getattr(config.model, 'edge_dim', None),
+            },
+            'training': {
+                'num_epochs': getattr(config.training, 'num_epochs', None),
+                'learning_rate': getattr(config.training, 'learning_rate', None),
+                'scheduler': getattr(config.training, 'scheduler', None),
+                'weighted_loss': getattr(config.training, 'weighted_loss', False),
+            },
+            'features': {
+                'include_backbone_angles': getattr(config.features, 'include_backbone_angles', False) if hasattr(config, 'features') else False,
+            }
+        }
+    }
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, 'w') as f:
+        json.dump(output, f, indent=2)
+    print(f"Saved test metrics to {save_path}")
 
 
 def set_seed(seed: int, cudnn_benchmark: bool = False, deterministic: bool = False):
@@ -178,6 +218,7 @@ def main(args):
         checkpoint_dir=config.experiment.checkpoint_dir,
         gradient_clip=getattr(config.training, 'gradient_clip', None),
         early_stopping_patience=getattr(config.training, 'early_stopping_patience', None),
+        early_stopping_metric=getattr(config.training, 'early_stopping_metric', 'loss'),
         scheduler=scheduler,
         scheduler_step_per_epoch=not scheduler_step_per_batch,
         use_amp=use_amp
@@ -289,23 +330,57 @@ def main(args):
     test_metrics, y_true, y_pred = evaluate_model(trainer.model, test_loader, device)
     print_metrics(test_metrics)
 
-    # Generate predictions and visualizations
-    if args.visualize:
-        print("\nGenerating visualizations...")
+    # Get checkpoint epoch for logging
+    checkpoint_epoch = len(trainer.train_losses) if trainer.train_losses else 0
 
-        # Plot predictions
-        plot_predictions(
-            y_true,
-            y_pred,
-            save_path=os.path.join(config.experiment.log_dir, 'predictions_vs_actual.png')
+    # Always save test metrics to JSON
+    save_test_metrics(
+        test_metrics,
+        config,
+        checkpoint_epoch,
+        save_path=os.path.join(config.experiment.log_dir, 'test_metrics.json')
+    )
+
+    # Always generate visualizations (non-blocking, saved to files)
+    print("\nGenerating visualizations...")
+
+    # 1. Training curves with R² (if training was done)
+    if trainer.train_losses and trainer.val_losses:
+        plot_training_curves_extended(
+            trainer.train_losses,
+            trainer.val_losses,
+            trainer.val_r2s if trainer.val_r2s else None,
+            save_path=os.path.join(config.experiment.log_dir, 'training_curves.png')
         )
 
-        from src.utils.visualization import plot_error_distribution
-        plot_error_distribution(
-            y_true,
-            y_pred,
-            save_path=os.path.join(config.experiment.log_dir, 'prediction_error_distribution.png')
-        )
+    # 2. Predictions vs Actual scatter plot
+    plot_predictions(
+        y_true,
+        y_pred,
+        save_path=os.path.join(config.experiment.log_dir, 'predictions_vs_actual.png')
+    )
+
+    # 3. Error distribution histogram
+    plot_error_distribution(
+        y_true,
+        y_pred,
+        save_path=os.path.join(config.experiment.log_dir, 'error_distribution.png')
+    )
+
+    # 4. Error by exposure range (key diagnostic)
+    error_stats = plot_error_by_exposure_range(
+        y_true,
+        y_pred,
+        save_path=os.path.join(config.experiment.log_dir, 'error_by_exposure_range.png')
+    )
+
+    # Print error stats summary
+    print("\nError by Exposure Range:")
+    print("-" * 60)
+    print(f"{'Range':<20} {'Count':>10} {'MAE':>10} {'Bias':>10}")
+    print("-" * 60)
+    for s in error_stats:
+        print(f"{s['label'].replace(chr(10), ' '):<20} {s['count']:>10} {s['mae']:>10.4f} {s['bias']:>+10.4f}")
 
     print("\nDone!")
     print("="*60)

@@ -23,12 +23,19 @@ This folder contains baseline GNN training experiments for atom exposure predict
   - Status: **Equivalent to GCN, no improvement**
   - [View results](experiment_3.6_gat_edges/RESULTS.md)
 
-- **`experiment_5.0_gine_best/`** (Phase 5) ✅ **CURRENT BEST**
+- **`experiment_5.0_gine_best/`** (Phase 5) ✅ **COMPLETE**
   - GINE: 3 layers × 96 hidden, dropout 0.35, exposure-weighted MSE (α=1.5)
   - Scheduler: OneCycle (max_lr=0.003, warmup=15), deterministic seed=42
   - Results: MAE 0.1829, R² 0.5684, Pearson 0.7551
-  - Status: **Current best deterministic baseline**
+  - Status: Previous best (superseded by Phase 12)
   - [View results](experiment_5.0_gine_best/RESULTS.md)
+
+- **`phase12_gatv2_radius_graph/`** (Phase 12) ✅ **CURRENT BEST**
+  - GATv2: 3 layers × 128 hidden, dropout 0.20, 4 heads, internal residual + ELU
+  - Features: 93 node features (+contact_count_10A), 12 edge features (+in_radius)
+  - Results: MAE 0.0866, R² **0.8817**, Pearson 0.9393
+  - Status: **NEW BEST! +46% R² over Phase 9**
+  - [View results](phase12_gatv2_radius_graph/RESULTS.md)
 
 - **`FAILED_phase6_aggregated/`** (Phase 6) ❌ **FAILED**
   - Attempted aggregated feature engineering (100+ → 50 features)
@@ -42,10 +49,11 @@ This folder contains baseline GNN training experiments for atom exposure predict
 |-----|-------|--------|-----|-----|---------|--------|
 | 3.5 | GCN | 3L, 96H, d0.3 | 0.204 | 0.484 | 0.696 | ✅ Complete |
 | 3.6 | GAT | 3L, 96H, d0.3, 4h | 0.204 | 0.477 | 0.691 | ✅ Complete |
-| 5.0 | GINE + Weighted Loss | 3L, 96H, d0.35, α=1.5, OneCycle | 0.183 | **0.568** | 0.755 | ✅ Current Best |
+| 5.0 | GINE + Weighted Loss | 3L, 96H, d0.35, α=1.5 | 0.183 | 0.568 | 0.755 | ✅ Complete |
+| **12** | **GATv2 + Radius+Contact** | 3L, 128H, d0.2, 93 features | **0.087** | **0.882** | **0.939** | **✅ BEST** |
 
-### Key Finding
-**GCN = GAT** in performance. The attention mechanism and edge features provide no meaningful advantage for atom exposure prediction. **GCN is the recommended baseline** due to simpler architecture and faster training.
+### Key Finding (Phase 12)
+Adding **local density features** (`contact_count_10A`, `in_radius`) provides massive improvement (+46% R²). The GATv2 attention mechanism, combined with these features, can now effectively distinguish buried vs exposed atoms.
 
 Start from Experiment 3.5 onwards. All experiments before 3.5 are invalid due to critical bugs.
 

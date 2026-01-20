@@ -1,8 +1,8 @@
 # GNN Protein Atom Exposure Prediction - Project Roadmap
 
 **Project Start**: 2026-01-08
-**Last Updated**: 2026-01-16
-**Current Status**: Phase 8 READY - GINE with backbone dihedral angles (φ/ψ)
+**Last Updated**: 2026-01-19
+**Current Status**: Phase 12 COMPLETE - **R² = 0.8817** (NEW BEST!)
 
 ---
 
@@ -14,10 +14,14 @@
 | Phase 2: Dataset Fixes | ✅ COMPLETE | 4,556 proteins, 88 features |
 | Phase 3: Architecture Comparison | ✅ COMPLETE | GIN best (R² 0.504) |
 | Phase 4: Hyperparameter Tuning | ✅ COMPLETE | R² 0.5456 (OneCycle scheduler) |
-| Phase 5: Extended Training | ✅ **R² 0.5684** | **Current best! +4.2% over Phase 4** |
+| Phase 5: Extended Training | ✅ COMPLETE | R² 0.5684 |
 | Phase 6: Aggregated Features | ❌ FAILED | R² 0.4002 (lost important features) |
 | Phase 7: Low Regularization | ❌ FAILED | R² 0.5604-0.5607 (didn't beat Phase 5) |
-| Phase 8: Backbone Angles | 🔄 READY | Target: R² > 0.58 |
+| Phase 8: Backbone Angles | ✅ COMPLETE | R² 0.607 |
+| Phase 9: Extended Training (200ep) | ✅ COMPLETE | R² 0.6028 |
+| Phase 10: Quadratic Loss | ✅ COMPLETE | R² 0.6022 |
+| Phase 11: GATv2 Transition | ✅ COMPLETE | R² 0.598 |
+| **Phase 12: GATv2 + Radius Graph** | ✅ **BEST** | **R² 0.8817 (+46% vs Phase 9)** |
 
 ---
 
@@ -377,9 +381,12 @@ Investigated colleague's report of 38 proteins with Graphein/PDB mismatch.
 | 4 | 4.1 | GIN-4L | 0.507 | ~0.20 | Deeper model |
 | 4 | 4.2 | GIN-LR | 0.516 | 0.197 | Lower LR + higher dropout |
 | 4 | Grid Search | GINE | 0.5456 | 0.1887 | OneCycle scheduler |
-| **5** | **150ep** | **GINE** | **0.5680** | **0.1831** | **Current best** |
+| 5 | 150ep | GINE | 0.5680 | 0.1831 | Weighted loss |
+| 8 | Backbone angles | GINE | 0.607 | ~0.17 | +phi/psi features |
+| 9 | 200ep | GINE | 0.6028 | ~0.18 | Extended training |
+| **12** | **Radius+Contact** | **GATv2** | **0.8817** | **0.0866** | **NEW BEST!** |
 
-**Progress**: R² improved from 0.484 → 0.5680 (+17.4% relative improvement)
+**Progress**: R² improved from 0.484 → 0.8817 (+82% relative improvement)
 
 ---
 

@@ -6,7 +6,7 @@ A Graph Neural Network (GNN) project using PyTorch Geometric to predict atom exp
 
 This project predicts the burial depth of individual atoms within protein structures using Graph Neural Networks. Proteins are represented as graphs where atoms are nodes and bonds are edges, enriched with biochemical features.
 
-**Current Best Result**: R² = 0.5684, MAE = 0.1829 (Phase 5 - GINE with Weighted Loss)
+**Current Best Result**: R² = 0.8817, MAE = 0.0866 (Phase 12 - GATv2 + Contact Count)
 
 ## Quick Start
 
@@ -83,10 +83,11 @@ GNN_atom_exposure/
 |-------|-------|-----|-----|--------|
 | 3 | GCN | 0.484 | 0.204 | ✅ Baseline |
 | 4 | GCN (tuned) | 0.5456 | - | ✅ Complete |
-| **5** | **GINE** | **0.5684** | **0.1829** | ✅ **Current Best** |
-| 6 | GINE (aggregated) | 0.4002 | - | ❌ Failed |
-| 7 | GINE (low reg) | 0.5607 | - | ❌ Failed |
-| 8 | GATv2 / Backbone | - | - | 🚧 Ready |
+| 5 | GINE | 0.5684 | 0.1829 | ✅ Complete |
+| 8 | GINE + Backbone Angles | 0.607 | 0.14 | ✅ Complete |
+| 9 | Extended Training (200 epochs) | 0.6028 | - | ✅ Complete |
+| 11 | GATv2 Transition | 0.598 | - | ✅ Complete |
+| **12** | **GATv2 + Contact Count** | **0.8817** | **0.0866** | ✅ **Current Best** |
 
 See [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) for complete experimental history.
 
@@ -96,15 +97,15 @@ See [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) for complete experimental history
 - **GCN** (Graph Convolutional Network)
 - **GAT** (Graph Attention Network)
 - **GIN** (Graph Isomorphism Network)
-- **GINE** (GIN with Edge features) - **Current best**
-- **GATv2** (Improved attention mechanism)
+- **GINE** (GIN with Edge features)
+- **GATv2** (Improved attention mechanism) - **Current best**
 
 ### Key Features
-- 88 carefully selected node features (biochemical + geometric)
-- Edge features (bond types, distances)
+- 93 carefully selected node features (biochemical + geometric + backbone angles + contact count)
+- 12 edge features (bond types, distances, radius graph)
+- GATv2 attention with internal residual connections
 - Weighted loss for class imbalance
 - OneCycleLR scheduler
-- Deterministic training (seed=42)
 - Comprehensive experiment tracking
 
 ## Usage
@@ -143,13 +144,14 @@ from torch_geometric.loader import DataLoader
 dataset = ProteinAtomDataset(root='dataset/', split='train')
 loader = DataLoader(dataset, batch_size=8, shuffle=True)
 
-# Create model
+# Create model (Phase 12 best config)
 model = AtomExposureGNN(
-    in_channels=88,
+    in_channels=93,          # 88 + 4 backbone + 1 contact_count
     hidden_channels=128,
     num_layers=3,
-    conv_type='gine',
-    dropout=0.2
+    conv_type='gatv2',       # GATv2 attention
+    edge_dim=12,             # 11 + 1 radius graph
+    dropout=0.25
 )
 
 # Train (see docs/GETTING_STARTED.md for complete example)
@@ -157,9 +159,10 @@ model = AtomExposureGNN(
 
 ## Key Achievements
 
-- **+17.4% improvement** from baseline (R² 0.484 → 0.5684)
+- **+82% improvement** from baseline (R² 0.484 → 0.8817)
+- **Phase 12 breakthrough**: +46% R² from contact_count_10A feature
 - **Critical bug fixes** that improved performance by 3-4x
-- **Systematic feature reduction** from 100+ to 88 optimal features
+- **93 optimized features** (88 base + 4 backbone angles + contact count)
 - **Weighted loss** effectively addresses class imbalance
 - **Comprehensive documentation** and experiment tracking
 

@@ -78,6 +78,7 @@ class Trainer:
         checkpoint_dir: str = 'experiments/checkpoints',
         gradient_clip: Optional[float] = None,
         early_stopping_patience: Optional[int] = None,
+        early_stopping_metric: str = 'loss',
         scheduler=None,
         scheduler_step_per_epoch: bool = True,
         use_amp: bool = False
@@ -89,10 +90,11 @@ class Trainer:
         self.checkpoint_dir = checkpoint_dir
         self.gradient_clip = gradient_clip
         self.early_stopping_patience = early_stopping_patience
+        self.early_stopping_metric = early_stopping_metric  # 'loss' or 'r2'
         self.scheduler = scheduler
         self.scheduler_step_per_epoch = scheduler_step_per_epoch
         self.use_amp = use_amp and device == 'cuda'  # AMP only works on CUDA
-        
+
         # Initialize GradScaler for mixed precision
         self.scaler = torch.amp.GradScaler('cuda') if self.use_amp else None
 
@@ -105,6 +107,7 @@ class Trainer:
         self.val_r2s = []  # Track validation R² per epoch
         self.learning_rates = []  # Track LR per epoch
         self.best_val_loss = float('inf')
+        self.best_val_r2 = float('-inf')  # Track best R² (higher is better)
         self.epochs_without_improvement = 0
 
     def train_epoch(self, train_loader: DataLoader) -> float:
@@ -295,15 +298,30 @@ class Trainer:
             print(f"Val Loss: {val_metrics['loss']:.4f} | R²: {val_metrics['r2']:.4f} | MAE: {val_metrics['mae']:.4f} | RMSE: {val_metrics['rmse']:.4f}")
 
             # Save best model and check early stopping
-            if save_best and val_metrics['loss'] < self.best_val_loss:
-                self.best_val_loss = val_metrics['loss']
+            # Use R² or loss based on early_stopping_metric
+            if self.early_stopping_metric == 'r2':
+                # R²: higher is better
+                is_improvement = val_metrics['r2'] > self.best_val_r2
+                if is_improvement:
+                    self.best_val_r2 = val_metrics['r2']
+                    self.best_val_loss = val_metrics['loss']  # Track loss too
+                metric_str = f"val_r2: {self.best_val_r2:.4f}"
+            else:
+                # Loss: lower is better
+                is_improvement = val_metrics['loss'] < self.best_val_loss
+                if is_improvement:
+                    self.best_val_loss = val_metrics['loss']
+                    self.best_val_r2 = val_metrics['r2']  # Track R² too
+                metric_str = f"val_loss: {self.best_val_loss:.4f}"
+
+            if save_best and is_improvement:
                 self.epochs_without_improvement = 0
                 self.save_checkpoint(
                     os.path.join(self.checkpoint_dir, 'best_model.pt'),
                     epoch,
                     val_metrics
                 )
-                print(f"[+] New best model saved (val_loss: {self.best_val_loss:.4f})")
+                print(f"[+] New best model saved ({metric_str})")
             else:
                 self.epochs_without_improvement += 1
 
@@ -312,7 +330,7 @@ class Trainer:
                 if self.epochs_without_improvement >= self.early_stopping_patience:
                     print(f"\n[!] Early stopping triggered after {epoch + 1} epochs")
                     print(f"   No improvement for {self.early_stopping_patience} consecutive epochs")
-                    print(f"   Best validation loss: {self.best_val_loss:.4f}")
+                    print(f"   Best: {metric_str}, R²: {self.best_val_r2:.4f}")
                     break
 
             # Step scheduler after epoch

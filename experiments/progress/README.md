@@ -2,7 +2,7 @@
 
 This directory contains all project progress documentation, phase summaries, and analysis scripts.
 
-**Last Updated**: 2026-01-18
+**Last Updated**: 2026-01-19
 
 ---
 
@@ -64,19 +64,23 @@ This directory contains all project progress documentation, phase summaries, and
 
 ## 🎯 Current Status
 
-**Completed**: Phases 1-11 ✅
-**In Progress**: Phase 12 - GATv2 + Radius Graph Feature
-**Best Result**: R² = 0.6028 (GINE with backbone angles, Phase 9)
+**Completed**: Phases 1-12 ✅
+**Best Result**: **R² = 0.8817** (GATv2 + Radius Graph + Contact Count, Phase 12)
 
 ### Phase History (5+)
 | Phase | Description | R² | Status |
 |-------|-------------|-----|--------|
 | 5 | Weighted Loss | 0.5684 | ✅ |
 | 8 | Backbone Angles | 0.607 | ✅ |
-| 9 | Extended Training (200 epochs) | 0.6028 | ✅ Best! |
+| 9 | Extended Training (200 epochs) | 0.6028 | ✅ |
 | 10 | Quadratic Loss | 0.6022 | ✅ |
 | 11 | GATv2 Transition | 0.598 | ✅ |
-| 12 | GATv2 + Radius Graph | target ≥ 0.60 | 🔄 |
+| **12** | **GATv2 + Radius Graph + Contact Count** | **0.8817** | **✅ BEST!** |
+
+### Key Breakthrough (Phase 12)
+- **+46.3% R² improvement** over Phase 9
+- New features: `contact_count_10A` (node), `in_radius` (edge)
+- Architecture: GATv2 with internal residual + ELU activation
 
 ---
 
@@ -88,4 +92,4 @@ This directory contains all project progress documentation, phase summaries, and
 
 ---
 
-**Last Updated**: 2026-01-18
+**Last Updated**: 2026-01-19
