@@ -30,6 +30,7 @@ env/
 ENV/
 env.bak/
 venv.bak/
+.venv/
 
 # PyTorch
 *.pth
@@ -59,6 +60,10 @@ wandb/
 dataset/depth_indexes.pkl
 dataset/sadic_data/
 dataset/*.pkl
+dataset/*.zip
+dataset/*.7z
+dataset/*.tar.gz
+dataset/*.rar
 
 # Temporary files
 tmp/
