@@ -252,7 +252,7 @@ def plot_importance(results, save_path, top_n=30):
 def main():
     parser = argparse.ArgumentParser(description='Feature Importance Analysis')
     parser.add_argument('--checkpoint', type=str,
-                        default='experiments/baselines/phase13a_best/best_model.pt',
+                        default='experiments/checkpoints/phase14_large_model/best_model.pt',
                         help='Path to model checkpoint')
     parser.add_argument('--n-repeats', type=int, default=3,
                         help='Number of permutation repeats')
@@ -270,11 +270,11 @@ def main():
 
     model = AtomExposureGNN(
         in_channels=93,
-        hidden_channels=128,
-        num_layers=3,
+        hidden_channels=176,
+        num_layers=5,
         conv_type='gatv2',
         edge_dim=12,
-        dropout=0.25
+        dropout=0.28
     )
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
@@ -282,8 +282,12 @@ def main():
 
     # Load test dataset
     print("\nLoading test dataset...")
+    # Get project root (2 levels up from this script)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    dataset_path = os.path.join(project_root, 'dataset')
+
     test_dataset = ProteinAtomDataset(
-        root='dataset/',
+        root=dataset_path,
         split='test',
         feature_config={
             'use_reduced_features': False,

@@ -1,0 +1,78 @@
+# Phase 15: Optimized Model (~250K Parameters)
+# Based on Phase 14 analysis - addressing instability and poor ROI
+# Strategy:
+#   - Reduce model size to ~250K params (vs 513K in Phase 14)
+#   - More conservative training (lower LR, longer warmup, stronger clipping)
+#   - New range-specific weighted loss to fix systematic bias
+# Changes from Phase 14:
+#   - hidden_channels: 176 -> 136 (23% reduction)
+#   - num_layers: 5 -> 4 (20% reduction, less overfitting risk)
+#   - Total params: 513K -> 254K (50% reduction, better dataset fit)
+#   - max_lr: 0.0009 -> 0.0007 (22% reduction, fix training spikes)
+#   - gradient_clip: 1.0 -> 0.5 (tighter clipping, prevent explosions)
+#   - warmup_epochs: 40 -> 50 (25% longer, smoother start)
+#   - dropout: 0.28 -> 0.26 (slightly less, smaller model)
+#   - batch_size: 28 -> 32 (back to original, smaller model fits)
+#   - weight_decay: 1.5e-4 -> 1.2e-4 (adjusted for model size)
+#   - loss: New RangeSpecificWeightedMSE (fix buried/exposed bias)
+
+data:
+  root: dataset
+  batch_size: 32                # RESTORED from 28 (smaller model)
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+features:
+  use_aggregated: false
+  use_reduced: false
+  include_atom_type: true
+  include_geometric: true
+  include_backbone_angles: true  # 93 node features (88+4+1 contact_count)
+
+model:
+  model_type: gnn
+  in_channels: 93               # 88 + 4 backbone + 1 contact_count_10A
+  hidden_channels: 136          # REDUCED from 176 (better dataset fit, divisible by 4)
+  num_layers: 4                 # REDUCED from 5 (less depth = more stability)
+  dropout: 0.26                 # REDUCED from 0.28 (smaller model needs less)
+  conv_type: gatv2              # GATv2 with dynamic attention
+  edge_dim: 12                  # 11 + 1 radius graph feature
+
+training:
+  num_epochs: 200
+  learning_rate: 5.0e-04
+  weight_decay: 1.2e-04         # REDUCED from 1.5e-04 (adjusted for model size)
+  scheduler: one_cycle
+  early_stopping_patience: 60   # Same as Phase 14
+  gradient_clip: 0.5            # TIGHTENED from 1.0 (prevent spike explosions)
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # OneCycle params - MORE CONSERVATIVE for stability
+  max_lr: 0.0007                # REDUCED from 0.0009 (fix training spikes)
+  warmup_epochs: 50             # INCREASED from 40 (smoother warmup)
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  # NEW: Range-Specific Weighted Loss to fix systematic bias
+  weighted_loss: true
+  loss_type: range_specific     # NEW: 'range_specific' instead of default 'exposure'
+  # Range-specific weights (penalize buried overestimation, exposed underestimation)
+  loss_range_weights:
+    buried: 1.5                 # 0-0.2: penalize overestimation (bias +0.0565)
+    semi_buried: 1.0            # 0.2-0.5: baseline
+    intermediate: 1.0           # 0.5-0.8: baseline
+    semi_exposed: 1.3           # 0.8-1.2: slightly higher penalty
+    exposed: 2.0                # 1.2+: strong penalty for underestimation (bias -0.0803)
+  # Fallback to old params if range_specific not implemented yet
+  loss_alpha: 1.5
+  loss_threshold: 0.8
+  loss_power: 1.0
+
+experiment:
+  name: phase15_optimized
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

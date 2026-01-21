@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-01-20T15:46:23.785993",
+  "test_metrics": {
+    "mae": 0.08386236429214478,
+    "mse": 0.013822214677929878,
+    "rmse": 0.1175679151721671,
+    "r2": 0.8892349600791931,
+    "pearson_corr": 0.9433668851852417,
+    "pearson_pval": 0.0,
+    "mean_error": -0.005004539154469967,
+    "std_error": 0.11746136099100113,
+    "median_ae": 0.06148537993431091
+  },
+  "checkpoint_epoch": 179,
+  "config": {
+    "experiment_name": "phase15_optimized",
+    "model": {
+      "conv_type": "gatv2",
+      "hidden_channels": 136,
+      "num_layers": 4,
+      "in_channels": 93,
+      "edge_dim": 12
+    },
+    "training": {
+      "num_epochs": 200,
+      "learning_rate": 0.0005,
+      "scheduler": "one_cycle",
+      "weighted_loss": true
+    },
+    "features": {
+      "include_backbone_angles": true
+    }
+  }
+}

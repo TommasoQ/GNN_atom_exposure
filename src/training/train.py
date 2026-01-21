@@ -54,6 +54,97 @@ class ExposureWeightedMSELoss(nn.Module):
         return weighted_loss
 
 
+class RangeSpecificWeightedMSELoss(nn.Module):
+    """
+    MSE loss with range-specific weights to address systematic bias.
+
+    Analysis showed that the model:
+    - Overestimates buried atoms (0-0.2 range): bias +0.0565
+    - Underestimates exposed atoms (1.2+ range): bias -0.0803
+
+    This loss applies higher penalties for:
+    - Overestimation of buried atoms
+    - Underestimation of exposed atoms
+
+    Weight formula based on exposure range:
+        buried (0-0.2):        weight = weight_buried
+        semi_buried (0.2-0.5): weight = weight_semi_buried
+        intermediate (0.5-0.8): weight = weight_intermediate
+        semi_exposed (0.8-1.2): weight = weight_semi_exposed
+        exposed (1.2+):        weight = weight_exposed
+
+    Additionally applies asymmetric weighting:
+    - For buried: penalize overestimation more (pred > target)
+    - For exposed: penalize underestimation more (pred < target)
+
+    Args:
+        buried_weight: Weight for buried atoms (0-0.2) [default: 1.5]
+        semi_buried_weight: Weight for semi-buried (0.2-0.5) [default: 1.0]
+        intermediate_weight: Weight for intermediate (0.5-0.8) [default: 1.0]
+        semi_exposed_weight: Weight for semi-exposed (0.8-1.2) [default: 1.3]
+        exposed_weight: Weight for exposed atoms (1.2+) [default: 2.0]
+        asymmetric_penalty: Additional penalty multiplier for directional bias [default: 1.5]
+    """
+
+    def __init__(
+        self,
+        buried_weight: float = 1.5,
+        semi_buried_weight: float = 1.0,
+        intermediate_weight: float = 1.0,
+        semi_exposed_weight: float = 1.3,
+        exposed_weight: float = 2.0,
+        asymmetric_penalty: float = 1.5
+    ):
+        super().__init__()
+        self.buried_weight = buried_weight
+        self.semi_buried_weight = semi_buried_weight
+        self.intermediate_weight = intermediate_weight
+        self.semi_exposed_weight = semi_exposed_weight
+        self.exposed_weight = exposed_weight
+        self.asymmetric_penalty = asymmetric_penalty
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Base squared error
+        squared_error = (pred - target) ** 2
+
+        # Determine range-based weights
+        weights = torch.ones_like(target)
+
+        # Buried (0-0.2)
+        buried_mask = target < 0.2
+        weights[buried_mask] = self.buried_weight
+
+        # Semi-buried (0.2-0.5)
+        semi_buried_mask = (target >= 0.2) & (target < 0.5)
+        weights[semi_buried_mask] = self.semi_buried_weight
+
+        # Intermediate (0.5-0.8)
+        intermediate_mask = (target >= 0.5) & (target < 0.8)
+        weights[intermediate_mask] = self.intermediate_weight
+
+        # Semi-exposed (0.8-1.2)
+        semi_exposed_mask = (target >= 0.8) & (target < 1.2)
+        weights[semi_exposed_mask] = self.semi_exposed_weight
+
+        # Exposed (1.2+)
+        exposed_mask = target >= 1.2
+        weights[exposed_mask] = self.exposed_weight
+
+        # Apply asymmetric penalty for directional bias
+        # Buried: penalize overestimation (pred > target)
+        buried_overestimate = buried_mask & (pred > target)
+        weights[buried_overestimate] *= self.asymmetric_penalty
+
+        # Exposed: penalize underestimation (pred < target)
+        exposed_underestimate = exposed_mask & (pred < target)
+        weights[exposed_underestimate] *= self.asymmetric_penalty
+
+        # Weighted MSE
+        weighted_loss = (weights * squared_error).mean()
+
+        return weighted_loss
+
+
 class Trainer:
     """
     Trainer class for GNN models.

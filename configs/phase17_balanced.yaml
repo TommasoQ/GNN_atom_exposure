@@ -1,0 +1,82 @@
+# Phase 17: Balanced Loss Fine-Tuning (254K Parameters)
+# Based on Phase 16 failure analysis - returning to Phase 15 model size with moderate loss tuning
+# Strategy:
+#   - Return to Phase 15 model size (254K params) - proven stable
+#   - Use MODERATE loss weights between Phase 15 and Phase 16
+#   - Add SMALL weights to intermediate ranges to prevent degradation
+#   - Goal: Improve bias without sacrificing R²
+# Key learnings from Phase 16:
+#   - Loss weights too aggressive (buried=2.0, exposed=2.5) degraded R² significantly
+#   - Intermediate ranges (semi_buried, intermediate, semi_exposed) were unprotected
+#   - Need to balance bias correction with global R² performance
+# Changes from Phase 15:
+#   - buried_weight: 1.5 -> 1.6 (+7%, moderate increase)
+#   - exposed_weight: 2.0 -> 2.2 (+10%, moderate increase)
+#   - semi_buried_weight: 1.0 -> 1.1 (+10%, NEW protection)
+#   - intermediate_weight: 1.0 -> 1.1 (+10%, NEW protection)
+#   - semi_exposed_weight: 1.3 -> 1.4 (+8%, slight increase)
+#   - asymmetric_penalty: 1.5 -> 1.6 (+7%, moderate increase)
+#   - All model and training params IDENTICAL to Phase 15 (proven stable)
+
+data:
+  root: dataset
+  batch_size: 32
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+features:
+  use_aggregated: false
+  use_reduced: false
+  include_atom_type: true
+  include_geometric: true
+  include_backbone_angles: true  # 93 node features
+
+model:
+  model_type: gnn
+  in_channels: 93               # 88 + 4 backbone + 1 contact_count_10A
+  hidden_channels: 136          # SAME AS PHASE 15 (proven stable)
+  num_layers: 4                 # SAME AS PHASE 15 (proven stable)
+  dropout: 0.26                 # SAME AS PHASE 15 (proven stable)
+  conv_type: gatv2              # GATv2 with dynamic attention
+  edge_dim: 12                  # 11 + 1 radius graph feature
+
+training:
+  num_epochs: 200
+  learning_rate: 5.0e-04
+  weight_decay: 1.2e-04         # SAME AS PHASE 15
+  scheduler: one_cycle
+  early_stopping_patience: 60
+  gradient_clip: 0.5            # SAME AS PHASE 15 (proven stable)
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # OneCycle params - SAME AS PHASE 15 (proven stable)
+  max_lr: 0.0007                # SAME AS PHASE 15
+  warmup_epochs: 50             # SAME AS PHASE 15
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  # BALANCED: Range-Specific Weighted Loss with MODERATE tuning
+  weighted_loss: true
+  loss_type: range_specific
+  # BALANCED range-specific weights (moderate increases + protect intermediate ranges)
+  loss_range_weights:
+    buried: 1.6                 # Phase 15: 1.5, Phase 16: 2.0 → Middle ground (+7%)
+    semi_buried: 1.1            # Phase 15: 1.0, Phase 16: 1.0 → NEW protection (+10%)
+    intermediate: 1.1           # Phase 15: 1.0, Phase 16: 1.0 → NEW protection (+10%)
+    semi_exposed: 1.4           # Phase 15: 1.3, Phase 16: 1.3 → Slight increase (+8%)
+    exposed: 2.2                # Phase 15: 2.0, Phase 16: 2.5 → Middle ground (+10%)
+  # Moderate asymmetric penalty (between Phase 15 and Phase 16)
+  loss_asymmetric_penalty: 1.6  # Phase 15: 1.5, Phase 16: 2.0 → Middle ground (+7%)
+  # Fallback params (not used with range_specific)
+  loss_alpha: 1.5
+  loss_threshold: 0.8
+  loss_power: 1.0
+
+experiment:
+  name: phase17_balanced
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

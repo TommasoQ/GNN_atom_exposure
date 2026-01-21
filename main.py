@@ -166,19 +166,46 @@ def main(args):
         weight_decay=config.training.weight_decay
     )
     
-    # Loss function: standard MSE or exposure-weighted MSE
+    # Loss function: standard MSE, exposure-weighted MSE, or range-specific MSE
     use_weighted_loss = getattr(config.training, 'weighted_loss', False)
+    loss_type = getattr(config.training, 'loss_type', 'exposure')  # 'exposure' or 'range_specific'
+
     if use_weighted_loss:
-        from src.training.train import ExposureWeightedMSELoss
-        loss_alpha = getattr(config.training, 'loss_alpha', 5.0)
-        loss_threshold = getattr(config.training, 'loss_threshold', 0.5)
-        loss_power = getattr(config.training, 'loss_power', 2.0)
-        criterion = ExposureWeightedMSELoss(
-            alpha=loss_alpha,
-            threshold=loss_threshold,
-            power=loss_power
-        )
-        print(f"  Loss: Exposure-Weighted MSE (alpha={loss_alpha}, threshold={loss_threshold}, power={loss_power})")
+        if loss_type == 'range_specific':
+            from src.training.train import RangeSpecificWeightedMSELoss
+            # Get range weights from config
+            range_weights = getattr(config.training, 'loss_range_weights', {})
+            buried_weight = range_weights.get('buried', 1.5)
+            semi_buried_weight = range_weights.get('semi_buried', 1.0)
+            intermediate_weight = range_weights.get('intermediate', 1.0)
+            semi_exposed_weight = range_weights.get('semi_exposed', 1.3)
+            exposed_weight = range_weights.get('exposed', 2.0)
+            asymmetric_penalty = getattr(config.training, 'loss_asymmetric_penalty', 1.5)
+
+            criterion = RangeSpecificWeightedMSELoss(
+                buried_weight=buried_weight,
+                semi_buried_weight=semi_buried_weight,
+                intermediate_weight=intermediate_weight,
+                semi_exposed_weight=semi_exposed_weight,
+                exposed_weight=exposed_weight,
+                asymmetric_penalty=asymmetric_penalty
+            )
+            print(f"  Loss: Range-Specific Weighted MSE")
+            print(f"    - Buried (0-0.2): {buried_weight:.1f}x, Semi-buried (0.2-0.5): {semi_buried_weight:.1f}x")
+            print(f"    - Intermediate (0.5-0.8): {intermediate_weight:.1f}x, Semi-exposed (0.8-1.2): {semi_exposed_weight:.1f}x")
+            print(f"    - Exposed (1.2+): {exposed_weight:.1f}x, Asymmetric penalty: {asymmetric_penalty:.1f}x")
+        else:
+            # Original exposure-weighted loss
+            from src.training.train import ExposureWeightedMSELoss
+            loss_alpha = getattr(config.training, 'loss_alpha', 5.0)
+            loss_threshold = getattr(config.training, 'loss_threshold', 0.5)
+            loss_power = getattr(config.training, 'loss_power', 2.0)
+            criterion = ExposureWeightedMSELoss(
+                alpha=loss_alpha,
+                threshold=loss_threshold,
+                power=loss_power
+            )
+            print(f"  Loss: Exposure-Weighted MSE (alpha={loss_alpha}, threshold={loss_threshold}, power={loss_power})")
     else:
         criterion = nn.MSELoss()
         print(f"  Loss: Standard MSE")

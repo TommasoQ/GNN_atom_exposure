@@ -246,7 +246,7 @@ def analyze_attention_by_exposure(dataset, model, device, save_dir, num_proteins
     model.eval()
 
     # Collect attention and targets across multiple proteins
-    all_attention_by_layer = {0: [], 1: [], 2: []}  # 3 layers
+    all_attention_by_layer = {0: [], 1: [], 2: [], 3: [], 4: []}  # 5 layers
     all_targets = []
     all_edge_sources = []
     cumulative_nodes = 0
@@ -286,7 +286,7 @@ def analyze_attention_by_exposure(dataset, model, device, save_dir, num_proteins
 
     results = []
 
-    for layer_idx in range(3):
+    for layer_idx in range(5):
         attention = np.concatenate(all_attention_by_layer[layer_idx], axis=0)
         mean_attention = np.mean(attention, axis=1)
 
@@ -370,7 +370,7 @@ def create_attention_heatmap(attention_per_layer, data, save_dir, max_nodes=50):
 def main():
     parser = argparse.ArgumentParser(description='Attention Analysis for GATv2')
     parser.add_argument('--checkpoint', type=str,
-                        default='experiments/baselines/phase13a_best/best_model.pt',
+                        default='experiments/checkpoints/phase14_large_model/best_model.pt',
                         help='Path to model checkpoint')
     parser.add_argument('--output-dir', type=str, default='experiments/analysis',
                         help='Output directory for results')
@@ -388,11 +388,11 @@ def main():
 
     model = AtomExposureGNN(
         in_channels=93,
-        hidden_channels=128,
-        num_layers=3,
+        hidden_channels=176,
+        num_layers=5,
         conv_type='gatv2',
         edge_dim=12,
-        dropout=0.25
+        dropout=0.28
     )
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
@@ -400,8 +400,12 @@ def main():
 
     # Load test dataset
     print("\nLoading test dataset...")
+    # Get project root (2 levels up from this script)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    dataset_path = os.path.join(project_root, 'dataset')
+
     test_dataset = ProteinAtomDataset(
-        root='dataset/',
+        root=dataset_path,
         split='test',
         feature_config={
             'use_reduced_features': False,
@@ -441,7 +445,7 @@ def main():
 
     # Collect attention from multiple proteins
     print(f"\nExtracting attention from {args.num_proteins} proteins...")
-    all_attention_layers = [[] for _ in range(3)]  # 3 layers
+    all_attention_layers = [[] for _ in range(5)]  # 5 layers
     all_edge_distances = []
     all_edge_attr = []
 
@@ -513,7 +517,7 @@ def main():
         print("  Looking in train dataset for smaller proteins...")
         try:
             train_dataset = ProteinAtomDataset(
-                root='dataset/',
+                root=dataset_path,
                 split='train',
                 feature_config={
                     'use_reduced_features': False,
