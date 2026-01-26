@@ -149,6 +149,13 @@ def main(args):
         model_config['element_embed_dim'] = getattr(config.features, 'element_embed_dim', 8)
         model_config['residue_embed_dim'] = getattr(config.features, 'residue_embed_dim', 11)
 
+    # Add dynamic global pooling parameters if enabled
+    use_global_pool = getattr(config.model, 'use_global_pool', False)
+    if use_global_pool:
+        model_config['use_global_pool'] = True
+        model_config['global_pool_type'] = getattr(config.model, 'global_pool_type', 'mean')
+        model_config['global_pool_layers'] = getattr(config.model, 'global_pool_layers', 'every')
+
     model = create_model(model_config)
     num_params = sum(p.numel() for p in model.parameters())
     conv_type = getattr(config.model, 'conv_type', 'gcn').upper()
@@ -269,12 +276,41 @@ def main(args):
         else:
             print(f"\nFeature config: {feature_config}")
 
+    # Global node transform (if enabled) - LEGACY, prefer global pooling
+    global_node_transform = None
+    use_global_node = getattr(config.features, 'use_global_node', False)
+    if use_global_node:
+        from src.data.global_node_transform import AddGlobalNode
+        aggregation = getattr(config.features, 'global_node_aggregation', 'mean')
+        global_node_transform = AddGlobalNode(aggregation=aggregation)
+        print(f"Global Node (virtual): ENABLED (aggregation={aggregation})")
+    else:
+        print(f"Global Node (virtual): DISABLED")
+
+    # Dynamic Global Pooling (if enabled) - NEW, recommended approach
+    if use_global_pool:
+        pool_type = getattr(config.model, 'global_pool_type', 'mean')
+        pool_layers = getattr(config.model, 'global_pool_layers', 'every')
+        print(f"Global Pooling (dynamic): ENABLED (type={pool_type}, layers={pool_layers})")
+    else:
+        print(f"Global Pooling (dynamic): DISABLED")
+
     # Training
     if not args.eval_only:
         print("\nStarting training...")
         print("\nLoading training and validation datasets...")
-        train_dataset = ProteinAtomDataset(root=config.data.root, split='train', feature_config=feature_config)
-        val_dataset = ProteinAtomDataset(root=config.data.root, split='val', feature_config=feature_config)
+        train_dataset = ProteinAtomDataset(
+            root=config.data.root,
+            split='train',
+            feature_config=feature_config,
+            transform=global_node_transform
+        )
+        val_dataset = ProteinAtomDataset(
+            root=config.data.root,
+            split='val',
+            feature_config=feature_config,
+            transform=global_node_transform
+        )
         print(f"  Train: {len(train_dataset)} proteins")
         print(f"  Val:   {len(val_dataset)} proteins")
 
@@ -340,7 +376,12 @@ def main(args):
 
     # Evaluation
     print("\nLoading test dataset...")
-    test_dataset = ProteinAtomDataset(root=config.data.root, split='test', feature_config=feature_config)
+    test_dataset = ProteinAtomDataset(
+        root=config.data.root,
+        split='test',
+        feature_config=feature_config,
+        transform=global_node_transform
+    )
     print(f"  Test:  {len(test_dataset)} proteins")
 
     test_loader = DataLoader(

@@ -1,0 +1,92 @@
+# Phase 15 noCC + Dynamic Global Pooling
+# Same as Phase 15 noCC but with dynamic global pooling (no virtual node)
+#
+# Strategy:
+#   - After each GNN layer, aggregate all node representations
+#   - Broadcast global context back to nodes via gated mechanism
+#   - Network learns how much global context to use per node
+#
+# Advantages over Virtual Global Node:
+#   - No graph modification (original structure preserved)
+#   - Direct injection of global info (doesn't need to propagate through layers)
+#   - More efficient for large proteins (no 2N extra edges)
+#   - Gated combination learns optimal mixing
+#
+# Expected impact:
+#   - Better calibration of predictions
+#   - Reduced outliers (global context helps scale predictions)
+#   - Potential R² improvement from 0.57 (Phase 15 noCC) to ???
+#
+# Note: This is still WITHOUT contact_count (92 features)
+
+data:
+  root: dataset
+  batch_size: 32
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+features:
+  use_aggregated: false
+  use_reduced: false
+  include_atom_type: true
+  include_geometric: true       # 7 geometric features (no contact_count)
+  include_backbone_angles: true  # 92 node features total
+  # Virtual global node: DISABLED (using dynamic pooling instead)
+  use_global_node: false
+
+model:
+  model_type: gnn
+  in_channels: 92               # 92 features (no contact_count)
+  hidden_channels: 136          # Same as Phase 15
+  num_layers: 4                 # Same as Phase 15
+  dropout: 0.26                 # Same as Phase 15
+  conv_type: gatv2              # GATv2 with dynamic attention
+  edge_dim: 12                  # 11 bond/distance features + 1 radius indicator
+  # NEW: Dynamic Global Pooling settings
+  use_global_pool: true         # Enable dynamic global pooling
+  global_pool_type: mean        # 'mean', 'max', or 'both'
+  global_pool_layers: every     # 'every', 'middle', or 'last'
+
+training:
+  num_epochs: 200
+  learning_rate: 5.0e-04
+  weight_decay: 1.2e-04
+  scheduler: one_cycle
+  early_stopping_patience: 60
+  early_stopping_metric: r2    # Use R² for best model selection (higher is better)
+  gradient_clip: 0.5
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+
+  # OneCycle scheduler
+  max_lr: 0.0007
+  warmup_epochs: 50
+  div_factor: 25.0
+  final_div_factor: 10000.0
+
+  # Range-Specific Weighted Loss
+  weighted_loss: true
+  loss_type: range_specific
+  loss_range_weights:
+    buried: 1.5
+    semi_buried: 1.0
+    intermediate: 1.0
+    semi_exposed: 1.3
+    exposed: 2.0
+
+  loss_asymmetric_penalty: 1.5
+
+  # Fallback params
+  loss_alpha: 1.5
+  loss_threshold: 0.8
+  loss_power: 1.0
+
+experiment:
+  name: phase15_noCC_globalpool
+  checkpoint_dir: experiments/checkpoints
+  log_dir: experiments/logs
+  save_best: true
+  seed: 42

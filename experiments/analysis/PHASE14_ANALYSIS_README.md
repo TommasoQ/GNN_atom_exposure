@@ -9,7 +9,7 @@ Tutti gli script ora utilizzano la configurazione Phase 14:
 
 ```python
 model = AtomExposureGNN(
-    in_channels=93,
+    in_channels=92,
     hidden_channels=176,      # era 128 in Phase 13a
     num_layers=5,             # era 3 in Phase 13a
     conv_type='gatv2',

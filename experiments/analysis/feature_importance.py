@@ -32,7 +32,7 @@ from torch_geometric.loader import DataLoader
 
 
 def get_feature_names():
-    """Get the complete list of 93 feature names in order."""
+    """Get the complete list of 93 feature names in order (WITH contact_count)."""
     names = []
 
     # 1. Numerical features (24)
@@ -47,7 +47,7 @@ def get_feature_names():
     # 4. Residues (21)
     names.extend([f'residue_{cat}' for cat in STANDARD_RESIDUES])
 
-    # 5. Geometric features (8)
+    # 5. Geometric features (8) - WITH contact_count
     geometric_names = [
         'geom_mean_dist', 'geom_min_dist', 'geom_max_dist', 'geom_std_dist',
         'geom_3rd_nearest_dist', 'geom_dist_to_center', 'geom_radial_position',
@@ -252,7 +252,7 @@ def plot_importance(results, save_path, top_n=30):
 def main():
     parser = argparse.ArgumentParser(description='Feature Importance Analysis')
     parser.add_argument('--checkpoint', type=str,
-                        default='experiments/checkpoints/phase14_large_model/best_model.pt',
+                        default='experiments/checkpoints/phase15_globalpool/best_model.pt',
                         help='Path to model checkpoint')
     parser.add_argument('--n-repeats', type=int, default=3,
                         help='Number of permutation repeats')
@@ -269,12 +269,15 @@ def main():
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
 
     model = AtomExposureGNN(
-        in_channels=93,
-        hidden_channels=176,
-        num_layers=5,
+        in_channels=93,              # 93 features (WITH contact_count)
+        hidden_channels=136,
+        num_layers=4,
         conv_type='gatv2',
         edge_dim=12,
-        dropout=0.28
+        dropout=0.26,
+        use_global_pool=True,
+        global_pool_type='mean',
+        global_pool_layers='every'
     )
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)

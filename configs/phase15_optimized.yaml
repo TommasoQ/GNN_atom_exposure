@@ -29,11 +29,11 @@ features:
   use_reduced: false
   include_atom_type: true
   include_geometric: true
-  include_backbone_angles: true  # 93 node features (88+4+1 contact_count)
+  include_backbone_angles: true  # 92 node features (24+31+5+21+7+4)
 
 model:
   model_type: gnn
-  in_channels: 93               # 88 + 4 backbone + 1 contact_count_10A
+  in_channels: 92               # 88 + 4 backbone angles (contact_count removed)
   hidden_channels: 136          # REDUCED from 176 (better dataset fit, divisible by 4)
   num_layers: 4                 # REDUCED from 5 (less depth = more stability)
   dropout: 0.26                 # REDUCED from 0.28 (smaller model needs less)

@@ -64,6 +64,7 @@ dataset/*.zip
 dataset/*.7z
 dataset/*.tar.gz
 dataset/*.rar
+dataset/processed_backup/
 
 # Temporary files
 tmp/

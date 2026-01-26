@@ -254,6 +254,7 @@ def compute_geometric_features(coords: np.ndarray,
     pairwise_distances = cdist(coords, coords, metric='euclidean')
 
     # Feature 8: Contact count at 10Å (count of atoms within 10Å, excluding self)
+    # CRITICAL FEATURE: Direct measure of burial/exposure
     # Subtract 1 to exclude self-distance (which is 0)
     contact_counts = (pairwise_distances < 10.0).sum(axis=1) - 1
     geom_features[:, 7] = contact_counts.astype(np.float32)
@@ -481,7 +482,7 @@ def get_feature_dimensions(use_reduced_features: bool = False,
     residue_count = len(STANDARD_RESIDUES)
 
     if include_geometric:
-        geometric_count = len(REDUCED_GEOMETRIC_INDICES) if use_reduced_features else 8  # 7 original + contact_count_10A
+        geometric_count = len(REDUCED_GEOMETRIC_INDICES) if use_reduced_features else 8
     else:
         geometric_count = 0
 

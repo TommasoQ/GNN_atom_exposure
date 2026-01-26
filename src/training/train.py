@@ -232,7 +232,13 @@ class Trainer:
                 with torch.amp.autocast('cuda'):
                     out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
                                      element_idx=element_idx, residue_idx=residue_idx)
-                    loss = self.criterion(out, batch.y)
+
+                    # Mask global node if present (target = -1)
+                    if hasattr(batch, 'global_node_mask'):
+                        mask = ~batch.global_node_mask  # Keep real atoms, exclude global node
+                        loss = self.criterion(out[mask], batch.y[mask])
+                    else:
+                        loss = self.criterion(out, batch.y)
 
                 # Scaled backward pass
                 self.scaler.scale(loss).backward()
@@ -252,7 +258,14 @@ class Trainer:
                 # Standard training
                 out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
                                  element_idx=element_idx, residue_idx=residue_idx)
-                loss = self.criterion(out, batch.y)
+
+                # Mask global node if present (target = -1)
+                if hasattr(batch, 'global_node_mask'):
+                    mask = ~batch.global_node_mask  # Keep real atoms, exclude global node
+                    loss = self.criterion(out[mask], batch.y[mask])
+                else:
+                    loss = self.criterion(out, batch.y)
+
                 loss.backward()
 
                 if self.gradient_clip is not None:
@@ -311,18 +324,42 @@ class Trainer:
                 with torch.amp.autocast('cuda'):
                     out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
                                      element_idx=element_idx, residue_idx=residue_idx)
-                    loss = self.criterion(out, batch.y)
+
+                    # Mask global node if present
+                    if hasattr(batch, 'global_node_mask'):
+                        mask = ~batch.global_node_mask
+                        loss = self.criterion(out[mask], batch.y[mask])
+                        out_filtered = out[mask]
+                        y_filtered = batch.y[mask]
+                        num_real_nodes = mask.sum().item()
+                    else:
+                        loss = self.criterion(out, batch.y)
+                        out_filtered = out
+                        y_filtered = batch.y
+                        num_real_nodes = batch.num_nodes
             else:
                 out = self.model(batch.x, batch.edge_index, batch.edge_attr, batch.batch,
                                  element_idx=element_idx, residue_idx=residue_idx)
-                loss = self.criterion(out, batch.y)
 
-            total_loss += loss.item() * batch.num_nodes
-            num_samples += batch.num_nodes
+                # Mask global node if present
+                if hasattr(batch, 'global_node_mask'):
+                    mask = ~batch.global_node_mask
+                    loss = self.criterion(out[mask], batch.y[mask])
+                    out_filtered = out[mask]
+                    y_filtered = batch.y[mask]
+                    num_real_nodes = mask.sum().item()
+                else:
+                    loss = self.criterion(out, batch.y)
+                    out_filtered = out
+                    y_filtered = batch.y
+                    num_real_nodes = batch.num_nodes
 
-            # Store predictions and targets
-            all_preds.append(out.cpu().numpy())
-            all_targets.append(batch.y.cpu().numpy())
+            total_loss += loss.item() * num_real_nodes
+            num_samples += num_real_nodes
+
+            # Store predictions and targets (filtered, without global node)
+            all_preds.append(out_filtered.cpu().numpy())
+            all_targets.append(y_filtered.cpu().numpy())
 
         pbar.close()
         avg_loss = total_loss / num_samples

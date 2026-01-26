@@ -246,7 +246,7 @@ def analyze_attention_by_exposure(dataset, model, device, save_dir, num_proteins
     model.eval()
 
     # Collect attention and targets across multiple proteins
-    all_attention_by_layer = {0: [], 1: [], 2: [], 3: [], 4: []}  # 5 layers
+    all_attention_by_layer = {0: [], 1: [], 2: [], 3: []}  # 5 layers
     all_targets = []
     all_edge_sources = []
     cumulative_nodes = 0
@@ -286,7 +286,7 @@ def analyze_attention_by_exposure(dataset, model, device, save_dir, num_proteins
 
     results = []
 
-    for layer_idx in range(5):
+    for layer_idx in range(4):
         attention = np.concatenate(all_attention_by_layer[layer_idx], axis=0)
         mean_attention = np.mean(attention, axis=1)
 
@@ -370,7 +370,7 @@ def create_attention_heatmap(attention_per_layer, data, save_dir, max_nodes=50):
 def main():
     parser = argparse.ArgumentParser(description='Attention Analysis for GATv2')
     parser.add_argument('--checkpoint', type=str,
-                        default='experiments/checkpoints/phase14_large_model/best_model.pt',
+                        default='experiments/checkpoints/phase15_globalpool/best_model.pt',
                         help='Path to model checkpoint')
     parser.add_argument('--output-dir', type=str, default='experiments/analysis',
                         help='Output directory for results')
@@ -387,12 +387,15 @@ def main():
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
 
     model = AtomExposureGNN(
-        in_channels=93,
-        hidden_channels=176,
-        num_layers=5,
+        in_channels=93,              # 93 features (WITH contact_count)
+        hidden_channels=136,
+        num_layers=4,
         conv_type='gatv2',
         edge_dim=12,
-        dropout=0.28
+        dropout=0.26,
+        use_global_pool=True,
+        global_pool_type='mean',
+        global_pool_layers='every'
     )
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(device)
@@ -445,7 +448,7 @@ def main():
 
     # Collect attention from multiple proteins
     print(f"\nExtracting attention from {args.num_proteins} proteins...")
-    all_attention_layers = [[] for _ in range(5)]  # 5 layers
+    all_attention_layers = [[] for _ in range(4)]  # 5 layers
     all_edge_distances = []
     all_edge_attr = []
 

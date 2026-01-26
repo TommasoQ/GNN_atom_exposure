@@ -4,7 +4,7 @@ Graph Neural Network Models for Atom Exposure Prediction
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, GATConv, GATv2Conv, GINConv, GINEConv, global_mean_pool
+from torch_geometric.nn import GCNConv, GATConv, GATv2Conv, GINConv, GINEConv, global_mean_pool, global_max_pool
 from torch_geometric.nn import BatchNorm, LayerNorm
 
 
@@ -25,6 +25,9 @@ class AtomExposureGNN(nn.Module):
         num_residues (int): Number of residue types for embedding
         element_embed_dim (int): Dimension of element embedding
         residue_embed_dim (int): Dimension of residue embedding
+        use_global_pool (bool): Enable dynamic global pooling
+        global_pool_type (str): Type of pooling ('mean', 'max', 'both')
+        global_pool_layers (str): Where to inject ('every', 'middle', 'last')
     """
 
     def __init__(
@@ -40,7 +43,10 @@ class AtomExposureGNN(nn.Module):
         num_elements: int = 5,
         num_residues: int = 21,
         element_embed_dim: int = 8,
-        residue_embed_dim: int = 11
+        residue_embed_dim: int = 11,
+        use_global_pool: bool = False,
+        global_pool_type: str = 'mean',
+        global_pool_layers: str = 'every'
     ):
         super().__init__()
 
@@ -50,6 +56,11 @@ class AtomExposureGNN(nn.Module):
         self.dropout = dropout
         self.conv_type = conv_type
         self.edge_dim = edge_dim
+
+        # Global pooling configuration
+        self.use_global_pool = use_global_pool
+        self.global_pool_type = global_pool_type
+        self.global_pool_layers = global_pool_layers
 
         # Embedding configuration
         self.use_embeddings = use_embeddings
@@ -70,6 +81,38 @@ class AtomExposureGNN(nn.Module):
 
         # Input projection
         self.input_proj = nn.Linear(actual_in_channels, hidden_channels)
+
+        # Global pooling gates (if enabled)
+        if use_global_pool:
+            # Determine how many gates we need
+            if global_pool_layers == 'every':
+                num_gates = num_layers
+            elif global_pool_layers == 'middle':
+                num_gates = 1  # Only after layer num_layers//2
+            elif global_pool_layers == 'last':
+                num_gates = 1  # Only after last conv layer
+            else:
+                num_gates = num_layers
+
+            # Determine gate input size based on pooling type
+            if global_pool_type == 'both':
+                gate_input_size = hidden_channels * 3  # node + mean_pool + max_pool
+            else:
+                gate_input_size = hidden_channels * 2  # node + pool
+
+            self.global_gates = nn.ModuleList([
+                nn.Sequential(
+                    nn.Linear(gate_input_size, hidden_channels),
+                    nn.Sigmoid()
+                ) for _ in range(num_gates)
+            ])
+
+            # Projection for pooled features if using 'both'
+            if global_pool_type == 'both':
+                self.global_proj = nn.ModuleList([
+                    nn.Linear(hidden_channels * 2, hidden_channels)
+                    for _ in range(num_gates)
+                ])
 
         # Graph convolution layers
         self.convs = nn.ModuleList()
@@ -153,6 +196,13 @@ class AtomExposureGNN(nn.Module):
         x = self.input_proj(x)
         x = F.relu(x)
 
+        # Create batch vector if not provided (single graph)
+        if batch is None:
+            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+
+        # Track gate index for global pooling
+        gate_idx = 0
+
         # Graph convolution layers
         for i, (conv, bn) in enumerate(zip(self.convs, self.batch_norms)):
             x_in = x
@@ -184,6 +234,50 @@ class AtomExposureGNN(nn.Module):
             # Add the residual (identity) after the transformation block
             if i > 0:
                 x = x + x_in
+
+            # === DYNAMIC GLOBAL POOLING ===
+            if self.use_global_pool:
+                apply_pooling = False
+
+                if self.global_pool_layers == 'every':
+                    apply_pooling = True
+                elif self.global_pool_layers == 'middle' and i == self.num_layers // 2:
+                    apply_pooling = True
+                elif self.global_pool_layers == 'last' and i == self.num_layers - 1:
+                    apply_pooling = True
+
+                if apply_pooling:
+                    # 1. Global pooling: aggregate all nodes per graph
+                    if self.global_pool_type == 'mean':
+                        global_repr = global_mean_pool(x, batch)  # (num_graphs, H)
+                    elif self.global_pool_type == 'max':
+                        global_repr = global_max_pool(x, batch)  # (num_graphs, H)
+                    elif self.global_pool_type == 'both':
+                        global_mean = global_mean_pool(x, batch)  # (num_graphs, H)
+                        global_max = global_max_pool(x, batch)    # (num_graphs, H)
+                        # Project concatenated pooling back to hidden_channels
+                        global_repr = self.global_proj[gate_idx](
+                            torch.cat([global_mean, global_max], dim=-1)
+                        )  # (num_graphs, H)
+
+                    # 2. Broadcast: expand global representation to node level
+                    global_expanded = global_repr[batch]  # (num_nodes, H)
+
+                    # 3. Gated combination: learn how much global context to use
+                    if self.global_pool_type == 'both':
+                        # For 'both', we pass node + mean + max to gate
+                        global_mean_expanded = global_mean_pool(x, batch)[batch]
+                        global_max_expanded = global_max_pool(x, batch)[batch]
+                        gate_input = torch.cat([x, global_mean_expanded, global_max_expanded], dim=-1)
+                    else:
+                        gate_input = torch.cat([x, global_expanded], dim=-1)
+
+                    gate = self.global_gates[gate_idx](gate_input)  # (num_nodes, H)
+
+                    # 4. Apply gated global context
+                    x = x + gate * global_expanded
+
+                    gate_idx += 1
 
         # Output projection
         out = self.out_proj(x)
@@ -260,7 +354,10 @@ def create_model(config: dict) -> nn.Module:
             num_elements=config.get('num_elements', 5),
             num_residues=config.get('num_residues', 21),
             element_embed_dim=config.get('element_embed_dim', 8),
-            residue_embed_dim=config.get('residue_embed_dim', 11)
+            residue_embed_dim=config.get('residue_embed_dim', 11),
+            use_global_pool=config.get('use_global_pool', False),
+            global_pool_type=config.get('global_pool_type', 'mean'),
+            global_pool_layers=config.get('global_pool_layers', 'every')
         )
     elif model_type == 'simple':
         return SimpleGCN(

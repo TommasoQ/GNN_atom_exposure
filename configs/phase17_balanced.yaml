@@ -31,11 +31,11 @@ features:
   use_reduced: false
   include_atom_type: true
   include_geometric: true
-  include_backbone_angles: true  # 93 node features
+  include_backbone_angles: true  # 92 node features (24+31+5+21+7+4)
 
 model:
   model_type: gnn
-  in_channels: 93               # 88 + 4 backbone + 1 contact_count_10A
+  in_channels: 92               # 88 + 4 backbone angles (contact_count removed)
   hidden_channels: 136          # SAME AS PHASE 15 (proven stable)
   num_layers: 4                 # SAME AS PHASE 15 (proven stable)
   dropout: 0.26                 # SAME AS PHASE 15 (proven stable)

@@ -24,11 +24,11 @@ features:
   use_reduced: false
   include_atom_type: true
   include_geometric: true
-  include_backbone_angles: true  # 93 node features (88+4+1 contact_count)
+  include_backbone_angles: true  # 92 node features (24+31+5+21+7+4)
 
 model:
   model_type: gnn
-  in_channels: 93               # 88 + 4 backbone + 1 contact_count_10A
+  in_channels: 92               # 88 + 4 backbone angles (contact_count removed)
   hidden_channels: 176          # INCREASED from 128 (1.38x wider, divisible by 4 for heads)
   num_layers: 5                 # INCREASED from 3 (deeper hierarchy)
   dropout: 0.28                 # INCREASED from 0.25 (prevent overfitting)
