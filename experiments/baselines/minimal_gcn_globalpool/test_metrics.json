@@ -1,0 +1,53 @@
+{
+  "timestamp": "2026-01-29T12:21:12.040495",
+  "test_metrics": {
+    "raw": {
+      "mae": 0.09334360063076019,
+      "mse": 0.014582602307200432,
+      "rmse": 0.1207584461112366,
+      "r2": 0.8831415772438049,
+      "pearson_corr": 0.9403715133666992,
+      "pearson_pval": 0.0,
+      "mean_error": 0.008416705764830112,
+      "std_error": 0.1204647645354271,
+      "median_ae": 0.07593213021755219
+    },
+    "clamped": {
+      "mae": 0.09328930824995041,
+      "mse": 0.014566819183528423,
+      "rmse": 0.1206930784408469,
+      "r2": 0.8832679986953735,
+      "pearson_corr": 0.9404520392417908,
+      "pearson_pval": 0.0,
+      "mean_error": 0.008470951579511166,
+      "std_error": 0.12039544433355331,
+      "median_ae": 0.07589913159608841
+    },
+    "diagnostics": {
+      "n_negative_predictions": 680,
+      "pct_negative_predictions": 0.06224165138084935,
+      "min_prediction": -0.35428911447525024,
+      "max_prediction": 1.802941083908081
+    }
+  },
+  "checkpoint_epoch": 179,
+  "config": {
+    "experiment_name": "minimal_gcn_globalpool",
+    "model": {
+      "conv_type": "unknown",
+      "hidden_channels": 64,
+      "num_layers": 2,
+      "in_channels": 5,
+      "edge_dim": 0
+    },
+    "training": {
+      "num_epochs": 200,
+      "learning_rate": 0.0005,
+      "scheduler": "one_cycle",
+      "weighted_loss": true
+    },
+    "features": {
+      "include_backbone_angles": false
+    }
+  }
+}

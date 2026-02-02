@@ -23,9 +23,20 @@ from datetime import datetime
 
 
 def save_test_metrics(metrics: dict, config, checkpoint_epoch: int, save_path: str):
-    """Save test metrics to JSON file for permanent record."""
-    # Convert numpy float32 to Python float for JSON serialization
-    serializable_metrics = {k: float(v) for k, v in metrics.items()}
+    """Save test metrics to JSON file for permanent record.
+
+    Metrics dict has structure: {'raw': {...}, 'clamped': {...}, 'diagnostics': {...}}
+    """
+    def convert_to_serializable(d):
+        """Convert numpy types to Python native types for JSON."""
+        return {k: float(v) if hasattr(v, 'item') else v for k, v in d.items()}
+
+    # Handle nested metrics structure (raw/clamped/diagnostics)
+    serializable_metrics = {}
+    for key in ['raw', 'clamped', 'diagnostics']:
+        if key in metrics:
+            serializable_metrics[key] = convert_to_serializable(metrics[key])
+
     output = {
         'timestamp': datetime.now().isoformat(),
         'test_metrics': serializable_metrics,
@@ -158,11 +169,18 @@ def main(args):
 
     model = create_model(model_config)
     num_params = sum(p.numel() for p in model.parameters())
+    model_type = getattr(config.model, 'model_type', 'gnn')
     conv_type = getattr(config.model, 'conv_type', 'gcn').upper()
-    print(f"  Architecture: {conv_type}")
+    if model_type == 'minimal':
+        print(f"  Architecture: MinimalGCN")
+    else:
+        print(f"  Architecture: {conv_type}")
     print(f"  Layers: {config.model.num_layers}, Hidden: {config.model.hidden_channels}")
     if use_aggregated:
         print(f"  Features: Aggregated (31 numerical + embeddings)")
+    if use_global_pool:
+        pool_type = getattr(config.model, 'global_pool_type', 'mean')
+        print(f"  Global Pooling: ENABLED ({pool_type})")
     print(f"  Parameters: {num_params:,}")
     model.to(device)
 
@@ -260,16 +278,21 @@ def main(args):
 
     # Build feature configuration from YAML config (use_aggregated already set above)
     feature_config = None
+    use_minimal_features = False
     if hasattr(config, 'features'):
         include_backbone_angles = getattr(config.features, 'include_backbone_angles', False)
+        use_minimal_features = getattr(config.features, 'use_minimal_features', False)
         feature_config = {
             'use_reduced_features': getattr(config.features, 'use_reduced', False),
             'include_atom_type': getattr(config.features, 'include_atom_type', True),
             'include_geometric': getattr(config.features, 'include_geometric', True),
             'use_aggregated': use_aggregated,
             'include_backbone_angles': include_backbone_angles,
+            'use_minimal_features': use_minimal_features,
         }
-        if use_aggregated:
+        if use_minimal_features:
+            print(f"\nFeature config: MINIMAL (5 geometric features only)")
+        elif use_aggregated:
             print(f"\nFeature config: aggregated transforms (31 numerical + embeddings)")
         elif include_backbone_angles:
             print(f"\nFeature config: standard features + backbone angles (phi/psi)")
@@ -394,14 +417,15 @@ def main(args):
 
     print("\nEvaluating on test set...")
     print("-" * 60)
-    # evaluate_model now returns metrics and predictions to avoid a second pass
-    test_metrics, y_true, y_pred = evaluate_model(trainer.model, test_loader, device)
+    # evaluate_model returns: metrics dict, y_true, y_pred (raw), y_pred_clamped
+    # metrics has 'raw', 'clamped', and 'diagnostics' keys
+    test_metrics, y_true, y_pred, y_pred_clamped = evaluate_model(trainer.model, test_loader, device)
     print_metrics(test_metrics)
 
     # Get checkpoint epoch for logging
     checkpoint_epoch = len(trainer.train_losses) if trainer.train_losses else 0
 
-    # Always save test metrics to JSON
+    # Always save test metrics to JSON (includes both raw and clamped)
     save_test_metrics(
         test_metrics,
         config,
@@ -421,24 +445,34 @@ def main(args):
             save_path=os.path.join(config.experiment.log_dir, 'training_curves.png')
         )
 
-    # 2. Predictions vs Actual scatter plot
+    # 2. Raw predictions plot (for diagnosis - shows negative predictions)
     plot_predictions(
         y_true,
         y_pred,
-        save_path=os.path.join(config.experiment.log_dir, 'predictions_vs_actual.png')
+        save_path=os.path.join(config.experiment.log_dir, 'predictions_raw.png'),
+        title='Raw Predictions (for diagnosis)',
+        show_zero_line=True
     )
 
-    # 3. Error distribution histogram
+    # 3. Clamped predictions plot (final metrics)
+    plot_predictions(
+        y_true,
+        y_pred_clamped,
+        save_path=os.path.join(config.experiment.log_dir, 'predictions_clamped.png'),
+        title='Clamped Predictions (final)'
+    )
+
+    # 4. Error distribution histogram (use clamped predictions for final analysis)
     plot_error_distribution(
         y_true,
-        y_pred,
+        y_pred_clamped,
         save_path=os.path.join(config.experiment.log_dir, 'error_distribution.png')
     )
 
-    # 4. Error by exposure range (key diagnostic)
+    # 5. Error by exposure range (use clamped predictions for final analysis)
     error_stats = plot_error_by_exposure_range(
         y_true,
-        y_pred,
+        y_pred_clamped,
         save_path=os.path.join(config.experiment.log_dir, 'error_by_exposure_range.png')
     )
 

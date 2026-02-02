@@ -1,0 +1,71 @@
+# Minimal GCN Model with Global Pooling (Stabilized)
+# Based on minimal_gcn.yaml with dynamic global pooling and training stabilization
+#
+# Changes from initial version:
+#   - Added LayerNorm after global pooling injection
+#   - Reduced max_lr: 0.001 -> 0.0005 (prevent oscillation)
+#   - Increased warmup: 30 -> 40 epochs (smoother start)
+#   - Tightened gradient_clip: 1.0 -> 0.5 (prevent spikes)
+#
+# Expected results:
+#   - R^2: 0.87-0.89 (stable training, no 0.2-0.4 crashes)
+#   - Parameters: ~16K
+#   - Batch size 64 for smoother gradient updates
+
+data:
+  root: dataset
+  batch_size: 64
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+features:
+  use_minimal_features: true    # Only 5 geometric features
+  use_aggregated: false
+  use_reduced: false
+  include_atom_type: false      # Excluded (low importance)
+  include_geometric: true       # Only source of features in minimal mode
+  include_backbone_angles: false  # Excluded (low importance)
+
+model:
+  model_type: minimal           # MinimalGCN class
+  in_channels: 5                # 5 minimal geometric features
+  hidden_channels: 64           # Reduced from 128/136
+  num_layers: 2                 # Reduced from 3-4
+  dropout: 0.2
+  edge_dim: 0                   # No edge features (all have 0 importance)
+  # Global Pooling
+  use_global_pool: true         # Enable protein-level context
+  global_pool_type: mean        # Mean aggregation (same as phase15)
+  # Feature noise for regularization
+  feature_noise: 0.05           # Gaussian noise σ during training
+
+training:
+  num_epochs: 200
+  learning_rate: 5.0e-04
+  weight_decay: 1.0e-04
+  scheduler: one_cycle
+  early_stopping_patience: 50
+  gradient_clip: 0.5            # REDUCED from 1.0 for stability
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # OneCycle params - CONSERVATIVE for stability
+  max_lr: 0.0005                # REDUCED from 0.001
+  warmup_epochs: 40             # INCREASED from 30
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  # Weighted Loss (same as best model)
+  weighted_loss: true
+  loss_alpha: 1.5
+  loss_threshold: 0.8
+  loss_power: 1.0
+  early_stopping_metric: r2
+
+experiment:
+  name: minimal_gcn_globalpool
+  checkpoint_dir: experiments/baselines/minimal_gcn_globalpool
+  log_dir: experiments/baselines/minimal_gcn_globalpool
+  save_best: true
+  seed: 42

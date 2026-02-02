@@ -17,9 +17,13 @@ def evaluate_model(
     model: nn.Module,
     data_loader: DataLoader,
     device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
-) -> Tuple[Dict[str, float], np.ndarray, np.ndarray]:
+) -> Tuple[Dict[str, Dict[str, float]], np.ndarray, np.ndarray, np.ndarray]:
     """
-    Evaluate model on a dataset.
+    Evaluate model on a dataset with both raw and clamped metrics.
+
+    Atom exposure cannot be negative, so we compute metrics on both:
+    - Raw predictions (for model diagnosis)
+    - Clamped predictions (final metrics, clamped to [0, inf))
 
     Args:
         model (nn.Module): Model to evaluate
@@ -27,7 +31,8 @@ def evaluate_model(
         device (str): Device to evaluate on
 
     Returns:
-        tuple: (metrics dict, y_true array, y_pred array)
+        tuple: (metrics dict with 'raw' and 'clamped' keys,
+                y_true array, y_pred array, y_pred_clamped array)
     """
     model.eval()
     model = model.to(device)
@@ -51,13 +56,28 @@ def evaluate_model(
         all_targets.append(batch.y.cpu().numpy())
 
     # Concatenate all predictions and targets
-    all_preds = np.concatenate(all_preds)
-    all_targets = np.concatenate(all_targets)
+    y_pred = np.concatenate(all_preds)
+    y_true = np.concatenate(all_targets)
 
-    # Compute metrics
-    metrics = compute_metrics(all_targets, all_preds)
+    # Clamp predictions: exposure cannot be negative
+    y_pred_clamped = np.maximum(y_pred, 0.0)
 
-    return metrics, all_targets, all_preds
+    # Compute metrics for both raw and clamped
+    metrics = {
+        'raw': compute_metrics(y_true, y_pred),
+        'clamped': compute_metrics(y_true, y_pred_clamped)
+    }
+
+    # Count negative predictions for diagnostics
+    n_negative = np.sum(y_pred < 0)
+    metrics['diagnostics'] = {
+        'n_negative_predictions': int(n_negative),
+        'pct_negative_predictions': float(n_negative / len(y_pred) * 100),
+        'min_prediction': float(y_pred.min()),
+        'max_prediction': float(y_pred.max())
+    }
+
+    return metrics, y_true, y_pred, y_pred_clamped
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
@@ -100,24 +120,49 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     }
 
 
-def print_metrics(metrics: Dict[str, float]):
+def print_metrics(metrics: Dict[str, Dict[str, float]]):
     """
-    Pretty print evaluation metrics.
+    Print evaluation metrics with clear RAW vs CLAMPED separation.
 
     Args:
-        metrics (dict): Dictionary of metrics
+        metrics (dict): Dictionary with 'raw', 'clamped', and 'diagnostics' keys
     """
-    print("\n" + "=" * 50)
-    print("EVALUATION METRICS")
-    print("=" * 50)
-    print(f"Mean Absolute Error (MAE):     {metrics['mae']:.4f}")
-    print(f"Root Mean Squared Error (RMSE): {metrics['rmse']:.4f}")
-    print(f"R² Score:                       {metrics['r2']:.4f}")
-    print(f"Pearson Correlation:            {metrics['pearson_corr']:.4f}")
-    print(f"Median Absolute Error:          {metrics['median_ae']:.4f}")
-    print(f"Mean Error:                     {metrics['mean_error']:.4f}")
-    print(f"Std Error:                      {metrics['std_error']:.4f}")
-    print("=" * 50 + "\n")
+    raw = metrics['raw']
+    clamped = metrics['clamped']
+    diag = metrics.get('diagnostics', {})
+
+    width = 70
+
+    # === RAW RESULTS (for diagnosis) ===
+    print("\n" + "=" * width)
+    print("RAW PREDICTIONS (for model diagnosis)")
+    print("=" * width)
+    print(f"  Mean Absolute Error (MAE):     {raw['mae']:.4f}")
+    print(f"  Root Mean Squared Error:       {raw['rmse']:.4f}")
+    print(f"  R² Score:                      {raw['r2']:.4f}")
+    print(f"  Pearson Correlation:           {raw['pearson_corr']:.4f}")
+    print(f"  Median Absolute Error:         {raw['median_ae']:.4f}")
+    print(f"  Mean Error (Bias):             {raw['mean_error']:+.4f}")
+    print(f"  Std Error:                     {raw['std_error']:.4f}")
+
+    # Diagnostics about negative predictions
+    if diag:
+        print()
+        print(f"  Negative predictions: {diag['n_negative_predictions']} ({diag['pct_negative_predictions']:.2f}%)")
+        print(f"  Prediction range: [{diag['min_prediction']:.4f}, {diag['max_prediction']:.4f}]")
+
+    # === CLAMPED RESULTS (final metrics) ===
+    print("\n" + "=" * width)
+    print("CLAMPED PREDICTIONS (final metrics, exposure >= 0)")
+    print("=" * width)
+    print(f"  Mean Absolute Error (MAE):     {clamped['mae']:.4f}")
+    print(f"  Root Mean Squared Error:       {clamped['rmse']:.4f}")
+    print(f"  R² Score:                      {clamped['r2']:.4f}")
+    print(f"  Pearson Correlation:           {clamped['pearson_corr']:.4f}")
+    print(f"  Median Absolute Error:         {clamped['median_ae']:.4f}")
+    print(f"  Mean Error (Bias):             {clamped['mean_error']:+.4f}")
+    print(f"  Std Error:                     {clamped['std_error']:.4f}")
+    print("=" * width + "\n")
 
 
 if __name__ == '__main__':
@@ -132,6 +177,6 @@ if __name__ == '__main__':
     model = AtomExposureGNN(in_channels=80, hidden_channels=128, num_layers=3)
     # model.load_state_dict(torch.load('experiments/checkpoints/best_model.pt')['model_state_dict'])
 
-    # Evaluate
-    metrics = evaluate_model(model, test_loader)
+    # Evaluate (returns metrics, y_true, y_pred, y_pred_clamped)
+    metrics, y_true, y_pred, y_pred_clamped = evaluate_model(model, test_loader)
     print_metrics(metrics)
