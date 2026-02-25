@@ -32,9 +32,6 @@ env.bak/
 venv.bak/
 .venv/
 
-# PyTorch
-*.pth
-*.pt
 
 # Jupyter Notebook
 .ipynb_checkpoints
