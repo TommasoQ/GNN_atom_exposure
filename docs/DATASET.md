@@ -1,10 +1,10 @@
 # Dataset Documentation
 
-This document describes the protein atom exposure dataset used for GNN training.
+The protein atom exposure dataset used for GNN training.
 
 ## Overview
 
-The dataset contains 4,769 protein structures with pre-processed graph representations. Each protein is represented as a graph where atoms are nodes and bonds are edges, with rich biochemical features.
+The dataset contains 4,769 protein structures with pre-processed graph representations. Each protein is a graph where atoms are nodes and bonds are edges, with rich biochemical features.
 
 ## Dataset Structure
 
@@ -12,15 +12,15 @@ The dataset contains 4,769 protein structures with pre-processed graph represent
 dataset/
 ├── README.md                      # Dataset overview
 ├── protein_sample_5000.csv        # List of protein IDs and atom counts
-├── depth_indexes.pkl              # Ground truth atom exposure values (330 MB)
-├── sadic_data/                    # Pre-processed protein graphs
+├── depth_indexes.pkl              # Ground truth atom exposure values (330 MB, NOT in git)
+├── sadic_data/                    # Pre-processed protein graphs (NOT in git)
 │   └── {pdb_id}/
 │       ├── {pdb_id}__graphein__ATOM_nodes.csv
 │       ├── {pdb_id}__graphein__ATOM_edges.csv
 │       ├── {pdb_id}__graphein__pdb_df.csv
 │       ├── {pdb_id}__graphein__raw_pdb_df.csv
 │       └── {pdb_id}__graphein__rgroup_df.csv
-└── processed/                     # PyTorch Geometric cache (auto-generated)
+└── processed/                     # PyTorch Geometric cache (auto-generated, NOT in git)
 ```
 
 ## Dataset Statistics
@@ -29,87 +29,48 @@ dataset/
 - **Available structures**: 4,769 (231 proteins missing from sadic_data/)
 - **Protein size range**: ~500 to 5,000+ atoms per protein
 - **Total atoms**: ~7.5M atoms across all proteins
-- **Node features**: 88 features per atom (after feature reduction)
-- **Edge types**: Covalent bonds, ring structures, distance-based connections
+- **Node features**: 93 features per atom
+- **Edge features**: 12 features per edge
 
-## Files Description
+## Node Features (93 features)
 
-### protein_sample_5000.csv
-CSV file containing:
-- `pdb_id`: Protein Data Bank identifier (e.g., "1a00", "1a01")
-- `atom_count`: Number of atoms in the protein
+| Group | Count | Features |
+|-------|-------|----------|
+| Atom type | 24 | One-hot element encoding, atom identifiers |
+| Chemical properties | 31 | Meiler descriptors (7D), ExPASy features (hydrophobicity, pKa, isoelectric point, molecular weight, accessibility), H-bond donors/acceptors |
+| Secondary structure | 5 | Alpha-helix, beta-sheet, beta-turn propensities |
+| Residue encoding | 21 | One-hot amino acid type |
+| Geometric features | 8 | Distance to neighbors, neighbor counts, contact_count_10A, local geometry |
+| Backbone angles | 4 | Phi/psi dihedral angles (sin/cos encoded) |
 
-**Note**: 231 proteins in this file don't have corresponding structures in sadic_data/ and are skipped during loading.
+## Edge Features (12 features)
 
-### depth_indexes.pkl (330 MB)
-Python pickle file containing ground truth labels:
-- **Type**: Dictionary
-- **Keys**: PDB IDs (strings)
-- **Values**: NumPy arrays of float values representing atom exposure depth
-- **Shape**: Each array length matches the atom count for that protein
-- **Units**: Angstroms (Å) - distance from atom to protein surface
+- Bond type (covalent, RING, distance-based)
+- Bond length (Angstroms)
+- Spatial distance between atoms
+- Radius graph connections
 
-**Exposure Depth Values**:
-- `0.0 Å`: Completely exposed (on surface)
-- `5.0+ Å`: Deeply buried
-- Distribution is heavily skewed toward buried atoms
+## Target Variable
 
-### sadic_data/
-Pre-processed protein graphs created using [Graphein](https://github.com/a-r-j/graphein):
+**Atom Exposure Depth**: how "buried" or "exposed" each atom is.
 
-Each protein directory contains:
-- **ATOM_nodes.csv**: Node features (one row per atom)
-- **ATOM_edges.csv**: Edge list (bond connections)
-- **pdb_df.csv**: Processed PDB dataframe
-- **raw_pdb_df.csv**: Original PDB data
-- **rgroup_df.csv**: Residue group information
-
-## Node Features (88 features)
-
-After systematic feature reduction in Phase 3, the current feature set includes:
-
-### Structural Features
-- **Coordinates**: x, y, z (3D spatial position)
-- **B-factor**: Temperature/disorder factor
-- **Residue**: name, number, chain ID
-- **Atom type**: Element symbol, atom identifier
-
-### Chemical Properties
-- **Hydrogen bonding**: Donors and acceptors count
-- **Meiler descriptors**: 7D physicochemical properties
-- **ExPASy features**: ~60 biochemical properties including:
-  - Hydrophobicity scales (multiple methods)
-  - pKa values (COOH, NH3, R-group)
-  - Isoelectric point
-  - Molecular weight
-  - Secondary structure propensities (α-helix, β-sheet, β-turn)
-  - Accessibility indices
-  - Flexibility and mutability indices
-
-### Geometric Features
-- **Neighbor counts**: Number of connected atoms
-- **Distances**: To neighboring atoms
-- **Angular features**: Local geometry descriptors
-
-## Edge Features
-
-- **kind**: Bond type (covalent, RING, distance-based)
-- **bond_length**: Covalent bond distance (Å)
-- **distance**: Spatial distance between atoms (Å)
+- **Range**: 0.0 (exposed) to ~3.0+ (deeply buried)
+- **Distribution**: Skewed toward buried atoms
+- **Biological significance**:
+  - Exposed atoms: Active sites, binding regions
+  - Buried atoms: Structural core, hydrophobic interior
 
 ## Data Splits
 
-Data is split at the **protein level** (not atom level) to prevent data leakage:
+Split at **protein level** (not atom level) to prevent data leakage:
 
-- **Training**: 70% of proteins (~3,340 proteins)
-- **Validation**: 15% of proteins (~715 proteins)
-- **Test**: 15% of proteins (~714 proteins)
+- **Training**: 80% of proteins (~3,815)
+- **Validation**: 10% of proteins (~477)
+- **Test**: 10% of proteins (~477)
 
-Split is deterministic with `seed=42` for reproducibility.
+Deterministic with `seed=42`.
 
 ## Data Loading
-
-### Using the Dataset Class
 
 ```python
 from src.data.dataset_fixed import ProteinAtomDataset
@@ -121,120 +82,26 @@ val_dataset = ProteinAtomDataset(root='dataset/', split='val')
 test_dataset = ProteinAtomDataset(root='dataset/', split='test')
 
 # Create data loaders
-train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
 
 # Access a sample
 sample = train_dataset[0]
-print(f"PDB ID: {sample.pdb_id}")
 print(f"Atoms: {sample.num_nodes}")
 print(f"Bonds: {sample.num_edges}")
-print(f"Features shape: {sample.x.shape}")  # [num_atoms, 88]
-print(f"Targets shape: {sample.y.shape}")   # [num_atoms, 1]
+print(f"Features shape: {sample.x.shape}")  # [num_atoms, 93]
+print(f"Targets shape: {sample.y.shape}")    # [num_atoms]
 ```
 
-### Data Format
+## Files NOT in Git
 
-Each graph sample is a `torch_geometric.data.Data` object with:
-- `x`: Node features tensor [num_atoms, 88]
-- `edge_index`: Edge connectivity [2, num_edges]
-- `edge_attr`: Edge features [num_edges, feature_dim]
-- `y`: Target exposure values [num_atoms, 1]
-- `pdb_id`: Protein identifier (string)
-
-## Dataset Quality
-
-### Data Quality Issues Addressed
-
-1. **HETATM dominance**: 38 proteins with >50% HETATM atoms
-   - Investigated and documented
-   - Decision: Keep in dataset (represent diversity)
-
-2. **Feature correlation**: High correlation (>0.95) between some features
-   - Removed redundant features in Phase 3
-   - Reduced from 100+ to 88 features
-
-3. **Missing proteins**: 231 proteins listed but not in sadic_data/
-   - Automatically skipped during loading
-   - No impact on training
-
-### Data Integrity
-
-- ✅ All target values verified to match protein structures
-- ✅ No missing features in loaded graphs
-- ✅ All edge indices valid
-- ✅ Consistent feature dimensions across all proteins
-
-See [DATASET_INTEGRITY_REPORT](analysis/DATASET_INTEGRITY.md) for full analysis.
-
-## Data Preprocessing
-
-### Feature Engineering
-
-Feature engineering is handled by [feature_engineering.py](../src/data/feature_engineering.py):
-- Loads raw graph CSVs from sadic_data/
-- Applies feature selection (88 features)
-- Normalizes features
-- Creates PyG Data objects
-
-### Caching
-
-PyTorch Geometric automatically caches processed graphs in `dataset/processed/`:
-- `pre_transform.pt`: Preprocessing configuration
-- `data_*.pt`: Individual processed graphs
-
-To regenerate cache (if feature engineering changes):
-```bash
-bash cleanup_folders.sh  # Removes processed cache
-python main.py  # Regenerates on next run
-```
-
-## Data Acquisition
-
-### Files NOT in Git
-
-Due to GitHub's file size limitations, the following are NOT committed:
-- `depth_indexes.pkl` (330 MB)
-- `sadic_data/` directory (~1 GB)
-- `processed/` cache (auto-generated)
-
-### How to Obtain the Dataset
+Due to file size limitations:
+- `depth_indexes.pkl` (330 MB) - Ground truth labels
+- `sadic_data/` directory (~1 GB) - Pre-processed protein graphs
+- `processed/` cache (auto-generated by PyG)
 
 Contact the project authors for dataset access.
 
-## Target Variable
-
-### Atom Exposure Depth
-
-The target variable represents how "buried" or "exposed" each atom is:
-
-- **Definition**: Distance from atom to protein surface (Å)
-- **Range**: 0.0 (exposed) to 10+ (buried)
-- **Distribution**: Heavily skewed toward buried atoms
-- **Biological significance**:
-  - Exposed atoms: Active sites, binding regions
-  - Buried atoms: Structural core, hydrophobic interior
-
-### Distribution
-
-```
-Exposure Range    | % of Atoms
-------------------|------------
-0.0 - 2.0 Å      | ~10%  (Highly exposed)
-2.0 - 5.0 Å      | ~30%  (Partially exposed)
-5.0+ Å           | ~60%  (Buried)
-```
-
-This imbalance is addressed with **weighted loss** during training.
-
-## License and Citation
-
-[Add dataset license information]
-
-[Add citation information if applicable]
-
 ## See Also
 
-- [Architecture Documentation](ARCHITECTURE.md) - Model design and features
+- [Architecture](ARCHITECTURE.md) - Model design and features
 - [Getting Started](GETTING_STARTED.md) - Installation and usage
-- [Experiments Documentation](EXPERIMENTS.md) - Training results

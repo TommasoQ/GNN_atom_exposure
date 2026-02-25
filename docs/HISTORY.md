@@ -1,217 +1,128 @@
-# Changelog
+# Project History
 
-All notable changes, milestones, and experimental results for this project.
+Chronological record of experimental phases and milestones.
 
-## [Phase 8] - 2026-01-16 - READY
+## Phase 15 + Global Pooling - CURRENT BEST
 
-### Planned
-- **GATv2 with Attention**: Testing dynamic attention mechanisms
-- **Backbone Dihedral Angles**: Adding φ/ψ angles as additional features
-- **Target**: Achieve R² > 0.58
+**R² = 0.9408, MAE = 0.0655** (174 epochs, early stopped)
 
-## [Phase 7] - 2026-01-16 - FAILED
+- Added Dynamic Global Pooling with gated mechanism
+- Mean pooling injected after every GATv2 layer
+- +5.8% R² improvement over Phase 15 alone
+- Pearson correlation: 0.9707
 
-### Changed
-- Reduced regularization (dropout 0.35 → 0.1, weight_decay 1e-4 → 1e-5)
-- Increased model capacity (96 → 128 hidden, 3 → 4 layers)
-- Smaller batch size (32 → 16)
-- Removed weighted loss
+## Phase 15 - Optimized Architecture
 
-### Results
-- R² = 0.5604-0.5607 (didn't beat Phase 5's 0.5684)
-- **Conclusion**: Current regularization is already well-tuned
-- **Status**: FAILED to improve
+**R² = 0.8892, MAE = 0.0838**
 
-## [Phase 6] - 2026-01-15 - FAILED
+- Optuna hyperparameter optimization
+- Final config: 4 layers, 136 hidden, 4 heads, dropout 0.26
+- OneCycleLR with 50-epoch warmup, max_lr 0.0007
+- Early stopping on R² (patience 60)
 
-### Changed
-- Implemented aggregated feature engineering approach
-- Reduced features from 88 to 50
-- Aggregated hydrophobicity scales into mean/std
-- Used centroid-based geometric features
-- Changed categorical encoding to label indices
+## Phase 15 noCC - Ablation Study
 
-### Results
-- R² = 0.4002 (29% drop from Phase 5)
-- **Conclusion**: Over-aggregation lost important predictive information
-- **Status**: FAILED
-- **Lesson**: Neighbor-based geometric features superior to centroid-based
+**R² = 0.5689, MAE = 0.1646**
 
-## [Phase 5] - 2026-01-14 - CURRENT BEST
+- Removed contact_count_10A to measure its importance
+- Proved contact_count is critical: -36% R² without it
 
-### Added
-- GINE architecture (Graph Isomorphism Network with Edge features)
-- Exposure-weighted MSE loss (α=1.5, threshold=0.8)
-- Deterministic training (seed=42)
+## Phase 14 - Hyperparameter Tuning
 
-### Changed
-- Architecture: GCN → GINE
-- Hidden channels: 96
-- Layers: 3
-- Dropout: 0.35
-- Scheduler: OneCycleLR (max_lr=0.003, pct_start=0.3)
+**R² = 0.8856, MAE = 0.0843**
 
-### Results
-- **R² = 0.5684** (NEW BEST)
-- **MAE = 0.1829**
-- **RMSE = 0.2321**
-- **Pearson = 0.7551**
-- **Improvement**: +17.4% from Phase 3 baseline
-- **Status**: Current best deterministic baseline
+- Optuna-based search over architecture and training params
+- Identified optimal hidden_channels=136, num_layers=4
 
-## [Phase 4] - 2026-01-12 - Complete
+## Phase 13 - Range-Specific Loss
 
-### Added
-- Systematic hyperparameter grid search (18 configurations)
-- OneCycleLR vs Cosine scheduler comparison
-- Learning rate sweep [0.001, 0.003, 0.005]
-- Warmup ratio testing [0.1, 0.3, 0.5]
+**R² = 0.8837, MAE = 0.0846**
 
-### Results
-- **Best Config**: OneCycleLR, max_lr=0.003, pct_start=0.3
-- **R² = 0.5456**
-- **Improvement**: +12.6% from Phase 3
-- **Key Finding**: OneCycleLR consistently outperforms Cosine
+- Introduced Range-Specific Weighted MSE loss
+- Different weights for buried/semi-buried/intermediate/semi-exposed/exposed
+- Asymmetric penalty (1.5x) for under-prediction
 
-## [Phase 3] - 2026-01-09 - Critical Bug Fixes
+## Phase 12 - Contact Count Breakthrough
 
-### Fixed - CRITICAL BUGS
-1. **Loss Weighting Bug**: Fixed `batch.num_graphs` → `batch.num_nodes` (~1000x gradient error)
-2. **Config Mismatch**: Corrected feature dimensions
-3. **Edge Features**: Added edge features to GAT layers
-4. **Target Padding**: Changed silent 0.0 padding to explicit failure
-5. **Dataset Caching**: Fixed triple processing issue
+**R² = 0.8817, MAE = 0.0866**
 
-### Changed
-- Feature reduction: 100+ features → 88 features
-- Removed highly correlated features (>0.95)
-- Removed low-importance features
+- Added contact_count_10A feature (+46% R² from Phase 11)
+- Switched to GATv2 with edge features
+- Single most impactful change in project history
 
-### Results - First Valid Experiments
-- **Experiment 3.5 (GCN)**: R² = 0.484, MAE = 0.204 (First valid baseline)
-- **Experiment 3.6 (GAT)**: R² = 0.477, MAE = 0.204
-- **Key Finding**: GCN and GAT perform equivalently
-- **Improvement**: 3-4x better than pre-bugfix experiments
+## Phase 11 - GATv2 Transition
 
-### Performance vs Pre-Fix
-| Metric | Pre-Fix (Exp 3.1-3.4) | Post-Fix (Exp 3.5) | Improvement |
-|--------|----------------------|-------------------|-------------|
-| MAE | 0.263-0.317 | 0.204 | 22-36% better |
-| R² | 0.10-0.15 | 0.484 | 3-4x better |
-| Pearson | 0.45-0.50 | 0.696 | 40% better |
+**R² = 0.598**
 
-### Deprecated
-- All experiments 3.1-3.4 marked as INVALID
-- Archived to `experiments/baselines/_archived_invalid_experiments/`
+- Migrated from GINE to GATv2
+- Dynamic attention mechanism with edge feature support
 
-## [Phase 2] - 2026-01-08 - Dataset Quality
+## Phase 9 - Extended Training
 
-### Added
-- Dataset integrity report
-- HETATM analysis (identified 38 proteins with >50% HETATM)
-- Missing protein investigation (231 proteins)
+**R² = 0.6028**
 
-### Changed
-- Dataset: 5,000 proteins listed → 4,769 available structures
-- Feature engineering pipeline established
+- Extended to 200 epochs with OneCycleLR
 
-### Results
-- Confirmed dataset quality
-- Documented data quirks
-- Established loading pipeline
+## Phase 8 - Backbone Angles
 
-## [Phase 1] - 2026-01-08 - Initial Exploration
+**R² = 0.607, MAE = 0.14**
 
-### Added
+- Added phi/psi backbone dihedral angles (sin/cos encoded)
+- 4 new features -> 93 total (with later additions)
+
+## Phase 5 - GINE with Weighted Loss
+
+**R² = 0.5684, MAE = 0.1829**
+
+- Switched to GINE architecture (edge features)
+- Exposure-weighted MSE loss
+- +17.4% R² from baseline
+
+## Phase 4 - Hyperparameter Grid Search
+
+**R² = 0.5456**
+
+- 18-configuration grid search
+- OneCycleLR vs Cosine comparison -> OneCycleLR wins
+
+## Phase 3 - Critical Bug Fixes
+
+**R² = 0.484, MAE = 0.204** (first valid baseline)
+
+- Fixed `batch.num_graphs` -> `batch.num_nodes` (~1000x gradient error)
+- Feature reduction: 100+ -> 88 features
+- All experiments before Phase 3 are invalid
+
+## Phases 1-2 - Setup and Dataset
+
 - Exploratory data analysis
+- Dataset integrity verification (4,769/5,000 proteins available)
 - Feature correlation analysis
-- Feature importance ranking
-- Dataset structure documentation
-
-### Results
-- **Key Finding**: B-factor is top predictor of atom exposure
-- Identified 100+ initial features
-- Established baseline understanding
-
-## [Initial Setup] - 2026-01-08
-
-### Added
-- Project structure
-- Dataset loading (ProteinAtomDataset class)
-- GNN model implementations (GCN, GAT, GIN, GINE, GATv2)
-- Training and evaluation pipeline
-- Configuration management
-- Documentation framework
-
-### Infrastructure
-- PyTorch Geometric integration
-- Graphein for graph construction
-- Experiment tracking system
-- Checkpoint management
+- Project structure established
 
 ---
 
-## Performance Summary
-
-### Best Results by Phase
-
-| Phase | Model | R² | MAE | Status |
-|-------|-------|-----|-----|--------|
-| 3 | GCN | 0.484 | 0.204 | ✅ Baseline |
-| 4 | GCN (tuned) | 0.5456 | - | ✅ Complete |
-| **5** | **GINE** | **0.5684** | **0.1829** | ✅ **BEST** |
-| 6 | GINE (aggregated) | 0.4002 | - | ❌ Failed |
-| 7 | GINE (low reg) | 0.5607 | - | ❌ Failed |
-
-### Overall Progress
+## Summary
 
 ```
-Phase 3 (Baseline): R² = 0.484
-    ↓ Bug fixes + 88 features
-Phase 4 (Tuning):   R² = 0.5456 (+12.6%)
-    ↓ GINE + Weighted loss
-Phase 5 (GINE):     R² = 0.5684 (+17.4% total)
+Phase 3  (GCN baseline):     R² = 0.484
+Phase 5  (GINE + loss):      R² = 0.568  (+17%)
+Phase 12 (contact_count):    R² = 0.882  (+82%)
+Phase 15 (optimized):        R² = 0.889  (+84%)
+Phase 15+GP (global pool):   R² = 0.941  (+94%)
 ```
-
----
 
 ## Key Learnings
 
-### What Worked ✅
-1. **GINE architecture**: Edge features matter (+15% over GCN)
-2. **Weighted loss**: Addresses class imbalance effectively
-3. **OneCycleLR**: Better than Cosine scheduler
-4. **88 features**: Optimal balance after reducing from 100+
-5. **Systematic debugging**: Critical bug fixes led to 3-4x improvement
+### What Worked
+1. **contact_count_10A**: Single most important feature (+46% R²)
+2. **GATv2 attention**: Dynamic attention with edge features
+3. **Dynamic Global Pooling**: Protein-level context via gating (+5.8% R²)
+4. **Range-Specific Weighted Loss**: Addresses exposure distribution bias
+5. **OneCycleLR**: Better convergence than Cosine scheduler
 
-### What Didn't Work ❌
-1. **GAT vs GCN**: Attention provides no benefit for this task
-2. **Aggregated features**: Over-simplification loses information
-3. **Low regularization**: Current settings already optimal
-4. **Centroid geometry**: Neighbor-based features superior
-
-### Critical Insights
-- **Feature engineering**: More isn't always better (100+ → 88)
-- **Architecture choice**: Edge features matter more than attention
-- **Class imbalance**: Must be addressed explicitly with weighted loss
-- **Debugging**: Small bugs can cause massive performance degradation
-- **Hyperparameters**: Can matter as much as architecture
-
----
-
-## Next Steps
-
-- [ ] Execute Phase 8 experiments (GATv2, backbone angles)
-- [ ] Explore E(3)-equivariant networks
-- [ ] Pre-training on larger protein datasets
-- [ ] Multi-task learning
-- [ ] Attention visualization
-- [ ] Production deployment
-
----
-
-## See Also
-
-- [Architecture Documentation](ARCHITECTURE.md) - Model design
-- [Experiments Documentation](EXPERIMENTS.md) - Detailed results
-- [Dataset Documentation](DATASET.md) - Data structure
+### What Didn't Work
+1. **PNA (Principal Neighbourhood Aggregation)**: 4.6x parameters, no clear benefit
+2. **GAT vs GCN (early phases)**: Attention alone didn't help without edge features
+3. **Aggregated features (Phase 6)**: Over-simplification lost information
+4. **Low regularization (Phase 7)**: Default settings were already optimal

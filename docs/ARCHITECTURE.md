@@ -1,275 +1,181 @@
 # Architecture
 
-This document describes the model architecture, features, and design decisions for the GNN Protein Atom Exposure Prediction project.
+Model architecture, features, and design decisions for the GNN Protein Atom Exposure Prediction project.
 
 ## Overview
 
-This project uses Graph Neural Networks (GNNs) to predict atom exposure depth in protein structures. Proteins are represented as graphs where atoms are nodes and bonds are edges, with rich biochemical features at both node and edge levels.
+Graph Neural Networks predict atom exposure depth in protein structures. Proteins are represented as graphs where atoms are nodes and bonds are edges, with rich biochemical features at both node and edge levels.
 
 ## Graph Representation
 
 ### Nodes (Atoms)
-Each atom in the protein structure is represented as a node in the graph with 88 features (after feature reduction from initial 100+).
+Each atom is a node with **93 features** (see Feature Engineering below).
 
-### Edges (Bonds)
-Edges represent connections between atoms, including:
-- Covalent bonds
+### Edges (Bonds/Contacts)
+Edges represent connections between atoms with **12 edge features**:
+- Covalent bonds (bond type, bond length)
 - Ring structures
-- Distance-based connections
+- Distance-based connections (radius graph, spatial distance)
 
-## Feature Engineering
+## Feature Engineering (93 Node Features)
 
-### Current Feature Set (88 features)
+The 93 features are composed of:
 
-After systematic feature reduction analysis, the current optimal feature set includes:
+| Group | Count | Description |
+|-------|-------|-------------|
+| Atom type | 24 | One-hot element encoding, atom identifiers |
+| Chemical properties | 31 | Meiler descriptors, ExPASy features, H-bond donors/acceptors |
+| Secondary structure | 5 | Alpha-helix, beta-sheet, beta-turn propensities |
+| Residue encoding | 21 | One-hot amino acid type |
+| Geometric features | 8 | Distances, neighbor counts, **contact_count_10A** |
+| Backbone angles | 4 | Phi/psi dihedral angles (sin/cos encoded) |
 
-**Structural Features:**
-- 3D spatial coordinates (x, y, z)
-- B-factor (temperature/disorder factor)
-- Residue information (name, number, chain)
-- Atom type and element
-
-**Chemical Properties:**
-- Hydrogen bond donors/acceptors
-- Meiler descriptors (7D physicochemical properties)
-- ExPASy features:
-  - Hydrophobicity scales (multiple methods)
-  - pKa values (COOH, NH3, R-group)
-  - Isoelectric point
-  - Molecular weight
-  - Secondary structure propensities (α-helix, β-sheet, β-turn)
-  - Accessibility indices
-  - Flexibility and mutability indices
-
-**Geometric Features:**
-- Distance to neighbors
-- Neighbor counts
-- Angular features
-- Local geometry descriptors
-
-**Edge Features:**
-- Bond type
-- Bond length
-- Spatial distance
-
-### Feature Reduction History
-
-- **Initial**: 100+ features with significant redundancy
-- **Phase 3**: Reduced to 88 features by removing highly correlated (>0.95) and low-importance features
-- **Result**: Improved R² from 0.477 to 0.484 and reduced overfitting
+### Critical Feature: contact_count_10A
+The number of atoms within 10A radius. Removing this single feature drops R² from 0.8892 to 0.5689 (-36%), making it the most important feature by far.
 
 ## Model Architecture
 
+### Best Model: GATv2 + Dynamic Global Pooling
+
+```
+Input (93 features)
+    |
+[Input Projection] -> hidden_channels (136)
+    |
+[GATv2 Layer 1] (4 heads x 34 = 136) + BatchNorm + ELU + Dropout
+    |--- [Global Mean Pool -> Gated Fusion]
+    |
+[GATv2 Layer 2] + BatchNorm + ELU + Dropout + Residual
+    |--- [Global Mean Pool -> Gated Fusion]
+    |
+[GATv2 Layer 3] + BatchNorm + ELU + Dropout + Residual
+    |--- [Global Mean Pool -> Gated Fusion]
+    |
+[GATv2 Layer 4] + BatchNorm + ELU + Dropout + Residual
+    |--- [Global Mean Pool -> Gated Fusion]
+    |
+[Output MLP] (136 -> 68 -> 1)
+    |
+Atom Exposure Prediction
+```
+
+### Dynamic Global Pooling
+
+After each GNN layer, a gated mechanism injects protein-level context:
+
+1. **Pool**: Aggregate all node features per graph (mean pooling)
+2. **Broadcast**: Expand global representation back to node level
+3. **Gate**: Learn per-node gate value via `sigmoid(W * [node || global])`
+4. **Fuse**: `node = node + gate * global`
+
+This gives each node access to protein-wide context (e.g., overall protein size/shape) while letting the gate learn how much global information each node needs.
+
+### Gaussian Noise Injection (Optional)
+
+When `input_noise_std > 0`, Gaussian noise (default σ=0.02) is added to input features during training only. This regularizes against overfitting to static crystallographic coordinates.
+
 ### Supported GNN Types
 
-The project supports multiple GNN architectures through the `AtomExposureGNN` class:
+The `AtomExposureGNN` class supports multiple convolution types:
 
-1. **GCN (Graph Convolutional Network)**
-   - Basic message passing
-   - Symmetric normalization
-   - Fast and simple
+| Type | Edge Features | Description | Best R² |
+|------|:---:|-------------|---------|
+| **GATv2** | Yes | Dynamic attention, 4 heads, residual connections | **0.9408** |
+| GINE | Yes | GIN with edge features | 0.5684 |
+| GAT | Yes | Standard attention | 0.477 |
+| GIN | No | Graph Isomorphism Network | - |
+| GCN | No | Basic message passing | 0.484 |
 
-2. **GAT (Graph Attention Network)**
-   - Attention-weighted message passing
-   - Learns edge importance
-   - Interpretable attention weights
-
-3. **GIN (Graph Isomorphism Network)**
-   - Powerful graph representation
-   - Theoretically strong expressiveness
-   - Good for complex patterns
-
-4. **GINE (Graph Isomorphism Network with Edge features)**
-   - **Current best architecture** (Phase 5)
-   - Incorporates edge features
-   - Stronger representation than GIN
-   - R² = 0.5684, MAE = 0.1829
-
-5. **GATv2 (Graph Attention Network v2)**
-   - Dynamic attention mechanism
-   - More expressive than GAT
-   - Being tested in Phase 8
-
-### Network Structure
-
-```
-Input (88 features)
-    ↓
-[GNN Layer 1] (hidden_channels)
-    ↓
-[Batch Normalization]
-    ↓
-[ReLU Activation]
-    ↓
-[Dropout]
-    ↓
-[GNN Layer 2] (hidden_channels)
-    ↓
-[Batch Normalization]
-    ↓
-[ReLU Activation]
-    ↓
-[Dropout]
-    ↓
-[GNN Layer 3] (hidden_channels)
-    ↓
-[Batch Normalization]
-    ↓
-[ReLU Activation]
-    ↓
-[Dropout]
-    ↓
-[Linear Output Layer] → Atom Exposure Prediction
-```
-
-### Hyperparameters (Current Best - Phase 5)
+### Hyperparameters (Current Best)
 
 ```yaml
 model:
-  conv_type: gine
-  hidden_channels: 128
-  num_layers: 3
-  dropout: 0.2
+  conv_type: gatv2
+  in_channels: 93
+  hidden_channels: 136
+  num_layers: 4
+  dropout: 0.26
+  edge_dim: 12
+  use_global_pool: true
+  global_pool_type: mean
+  global_pool_layers: every
 
 training:
-  batch_size: 8
-  learning_rate: 0.003  # max_lr for OneCycle
-  epochs: 200
-  scheduler: OneCycleLR
-  pct_start: 0.3
-  weight_decay: 0.0
+  learning_rate: 5.0e-04
+  weight_decay: 1.2e-04
+  scheduler: one_cycle
+  max_lr: 0.0007
+  warmup_epochs: 50
+  early_stopping_patience: 60
+  early_stopping_metric: r2
+  gradient_clip: 0.5
+  use_amp: true
 ```
+
+## Loss Function
+
+### Range-Specific Weighted MSE
+
+Different exposure ranges get different weights to address distribution imbalance:
+
+| Range | Weight | Rationale |
+|-------|--------|-----------|
+| Buried (0-0.2) | 1.5x | Under-represented, important |
+| Semi-buried (0.2-0.5) | 1.0x | Baseline |
+| Intermediate (0.5-0.8) | 1.0x | Baseline |
+| Semi-exposed (0.8-1.2) | 1.3x | Transition zone |
+| Exposed (1.2+) | 2.0x | Rare, biologically important |
+
+Additionally, an asymmetric penalty (1.5x) penalizes under-prediction more than over-prediction.
+
+## Evaluation
+
+### Raw vs Clamped Metrics
+
+Atom exposure cannot be negative, so evaluation reports both:
+- **Raw predictions**: For model diagnosis (shows negative predictions, bias)
+- **Clamped predictions**: Final metrics, `max(prediction, 0)`
+
+### Metrics
+- MAE, RMSE, R², Pearson correlation
+- Mean error (bias), std error, median absolute error
+- Negative prediction count (diagnostic)
 
 ## Training Strategy
 
-### Loss Function
-
-**Weighted MSE Loss** with inverse frequency weighting:
-- Addresses class imbalance (most atoms are buried)
-- Gives higher weight to exposed atoms (minority class)
-- Improved R² significantly over standard MSE
-
-### Learning Rate Scheduler
-
-**OneCycleLR** (Phase 4 winner over Cosine):
-- Warm-up phase: 30% of training
-- Peak learning rate: 0.003
-- Annealing phase: Gradual decay
-- Better convergence than Cosine scheduler
-
-### Regularization
-
-- **Dropout**: 0.2 (20% dropout rate)
-- **Batch Normalization**: After each GNN layer
-- **Weight Decay**: 0.0 (removed after Phase 7 analysis)
+- **Scheduler**: OneCycleLR with 50-epoch warmup (out of 200 total)
+- **Early stopping**: On validation R² with patience of 60 epochs
+- **Mixed precision** (AMP) for faster training
+- **cuDNN benchmark** mode enabled
+- **Gradient clipping** at 0.5
 
 ### Data Splits
 
-- **Training**: 70% of proteins
-- **Validation**: 15% of proteins
-- **Test**: 15% of proteins
+- **Training**: 80% of proteins
+- **Validation**: 10% of proteins
+- **Test**: 10% of proteins
 
-Split at protein level (not atom level) to prevent data leakage.
-
-## Performance
-
-### Current Best Results (Phase 5 - GINE)
-
-- **R² Score**: 0.5684
-- **MAE**: 0.1829
-- **RMSE**: 0.2755
-- **Improvement**: +17.4% from baseline (R² 0.484)
-
-### Evolution
-
-| Phase | Architecture | R² | MAE | Key Changes |
-|-------|-------------|-----|-----|-------------|
-| 3.5 | GCN | 0.484 | 0.2012 | Baseline after bug fixes |
-| 3.6 | GAT | 0.477 | 0.2020 | Added attention |
-| 4 | GCN | 0.5456 | - | Hyperparameter tuning |
-| 5 | GINE | 0.5684 | 0.1829 | Edge features + weighted loss |
-| 6 | GINE | 0.4002 | - | FAILED: Over-aggregation |
-| 7 | GINE | 0.5607 | - | FAILED: Low regularization |
+Split at protein level (not atom level) to prevent data leakage. Deterministic with `seed=42`.
 
 ## Design Decisions
 
-### Why GINE over Other Architectures?
+### Why GATv2 over GINE?
+GATv2's dynamic attention mechanism + edge feature support + internal residual connections significantly outperform GINE (R² 0.88 vs 0.57). The attention heads learn meaningful bond/distance importance patterns.
 
-1. **Edge Feature Utilization**: GINE can incorporate bond types and distances
-2. **Expressive Power**: Strong theoretical foundations
-3. **Empirical Performance**: 15% better than GCN/GAT
-4. **Local Geometry**: Captures atomic neighborhoods well
+### Why Global Pooling?
+Node-level predictions benefit from protein-wide context. A buried atom in a small protein differs from one in a large protein. Global pooling provides this context with minimal parameter overhead via gating.
 
-### Why Weighted Loss?
-
-Exposure distribution is heavily skewed:
-- Most atoms: buried (depth > 5Å)
-- Few atoms: exposed (depth < 2Å)
-- Weighted loss ensures model learns exposed atoms
-
-### Why OneCycleLR?
-
-- Faster convergence than step decay
-- Better final performance than Cosine
-- Helps escape local minima during warm-up
-- Proven in Phase 4 grid search
-
-### Why 3 Layers?
-
-- Balances receptive field and overfitting
-- 3 layers = 3-hop neighborhood aggregation
-- Deeper models (4-5 layers) showed diminishing returns
-- Shallower models (1-2 layers) under-fit
-
-## Key Challenges
-
-1. **Graph Size Variability**: Proteins range from 500 to 5000+ atoms
-   - **Solution**: Dynamic batching with PyG DataLoader
-
-2. **Feature Engineering**: 100+ initial features with redundancy
-   - **Solution**: Correlation analysis and feature importance ranking
-
-3. **Class Imbalance**: Buried atoms >> exposed atoms
-   - **Solution**: Weighted loss function
-
-4. **Computational Cost**: Large graphs are memory-intensive
-   - **Solution**: Batch size 8, gradient accumulation
-
-5. **Overfitting**: High-capacity models overfit easily
-   - **Solution**: Dropout, batch norm, careful regularization
-
-## Future Directions
-
-### Phase 8 Experiments
-
-1. **GATv2 with Attention**: Dynamic attention mechanism
-2. **Backbone Dihedral Angles**: Add φ/ψ angles as features
-3. **Geometric Features**: Enhanced local geometry descriptors
-
-### Potential Improvements
-
-- [ ] E(3)-equivariant networks for geometric invariance
-- [ ] Pre-training on larger protein datasets
-- [ ] Multi-task learning (exposure + secondary structure)
-- [ ] Residue-level predictions
-- [ ] Attention visualization for interpretability
-- [ ] Ensemble methods
+### Why Range-Specific Loss?
+Exposure distribution is heavily skewed toward buried atoms. Uniform MSE under-weights rare exposed atoms that are biologically important (active sites, binding regions).
 
 ## References
 
-### Key Papers
-
-- **Graph Isomorphism Network**: Xu et al., "How Powerful are Graph Neural Networks?" (2019)
+- **GATv2**: Brody et al., "How Attentive are Graph Attention Networks?" (2022)
 - **PyTorch Geometric**: Fey & Lenssen, "Fast Graph Representation Learning with PyTorch Geometric" (2019)
-- **Atom Depth**: Yuan et al., "Atom depth as a descriptor for the 3D structures of molecules" (2006)
-
-### Libraries
-
-- **PyTorch Geometric**: https://pytorch-geometric.readthedocs.io/
-- **Graphein**: https://github.com/a-r-j/graphein
+- **OneCycleLR**: Smith & Topin, "Super-Convergence" (2019)
 
 ## See Also
 
-- [Dataset Documentation](DATASET.md) - Data structure and features
-- [Experiments Documentation](EXPERIMENTS.md) - Full experimental history
-- [Getting Started](GETTING_STARTED.md) - Installation and usage
+- [Dataset Documentation](DATASET.md)
+- [Getting Started](GETTING_STARTED.md)
+- [History](HISTORY.md)
