@@ -1,18 +1,13 @@
-# Phase 15 + Global Pooling: Best Model WITH Contact Count AND Global Context
+# Phase 15 + Global Pooling + Gaussian Noise
 #
-# This config combines:
-#   - Phase 15 architecture (best so far: R² = 0.8892)
-#   - ALL 93 features INCLUDING contact_count (critical feature)
-#   - Dynamic Global Pooling for protein-level context
+# Same as gatv2_globalpool (current best: R² = 0.9408) with
+# Gaussian noise injection on input features during training.
 #
-# Hypothesis:
-#   Global pooling should improve calibration and reduce outliers
-#   even when contact_count is present.
+# The noise acts as a regularizer, preventing overfitting on the
+# static crystallographic coordinates from PDB structures.
 #
-# Expected results:
-#   - R² >= 0.8892 (at least as good as Phase 15)
-#   - Better calibration (fewer outliers)
-#   - Potentially R² = 0.89-0.90 (+0.5-1% improvement)
+# Change vs gatv2_globalpool:
+#   - input_noise_std: 0.02 (σ = 2% on normalized features, training only)
 
 data:
   root: dataset
@@ -39,8 +34,10 @@ model:
   edge_dim: 12
   # Dynamic Global Pooling
   use_global_pool: true
-  global_pool_type: mean        # 'mean', 'max', or 'both'
-  global_pool_layers: every     # 'every', 'middle', or 'last'
+  global_pool_type: mean
+  global_pool_layers: every
+  # Gaussian noise on input features (training only)
+  input_noise_std: 0.02
 
 training:
   num_epochs: 200
@@ -48,7 +45,7 @@ training:
   weight_decay: 1.2e-04
   scheduler: one_cycle
   early_stopping_patience: 60
-  early_stopping_metric: r2    # Use R² for best model selection (higher is better)
+  early_stopping_metric: r2
   gradient_clip: 0.5
   use_amp: true
   cudnn_benchmark: true
@@ -78,8 +75,8 @@ training:
   loss_power: 1.0
 
 experiment:
-  name: phase15_globalpool
+  name: gatv2_globalpool_gaussian
   checkpoint_dir: experiments/checkpoints
-  log_dir: experiments/logs
+  log_dir: experiments/gatv2_globalpool_gaussian
   save_best: true
   seed: 42

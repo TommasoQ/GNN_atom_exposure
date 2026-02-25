@@ -89,19 +89,19 @@ See [Dataset Documentation](DATASET.md) for how to obtain the dataset.
 ### Train the best model
 
 ```bash
-python main.py --config configs/phase15_globalpool.yaml
+python main.py --config configs/gatv2_globalpool.yaml
 ```
 
 ### Train with Gaussian noise regularization
 
 ```bash
-python main.py --config configs/phase15_globalpool_gaussian.yaml
+python main.py --config configs/gatv2_globalpool_gaussian.yaml
 ```
 
 ### Custom parameters
 
 ```bash
-python main.py --config configs/phase15_globalpool.yaml --batch-size 16 --epochs 100
+python main.py --config configs/gatv2_globalpool.yaml --batch-size 16 --epochs 100
 ```
 
 ## Evaluation
@@ -109,19 +109,19 @@ python main.py --config configs/phase15_globalpool.yaml --batch-size 16 --epochs
 ### Evaluate and generate plots (no training)
 
 ```bash
-python main.py --config configs/phase15_globalpool.yaml --eval-only
+python main.py --config configs/gatv2_globalpool.yaml --eval-only
 ```
 
 ### Evaluate with a specific checkpoint
 
 ```bash
-python main.py --config configs/phase15_globalpool.yaml --eval-only --checkpoint path/to/best_model.pt
+python main.py --config configs/gatv2_globalpool.yaml --eval-only --checkpoint path/to/best_model.pt
 ```
 
 ### Force CPU evaluation
 
 ```bash
-python main.py --config configs/phase15_globalpool.yaml --eval-only --cpu
+python main.py --config configs/gatv2_globalpool.yaml --eval-only --cpu
 ```
 
 ## Command Line Arguments

@@ -10,7 +10,7 @@ Two model architectures are available:
 
 | Model | R² | Parameters | Features | Config |
 |-------|-----|-----------|----------|--------|
-| **GATv2 + Global Pooling** | **0.9408** | ~500K | 93 node + 12 edge | `configs/phase15_globalpool.yaml` |
+| **GATv2 + Global Pooling** | **0.9408** | ~500K | 93 node + 12 edge | `configs/gatv2_globalpool.yaml` |
 | **MinimalGCN + Global Pooling** | **0.87-0.89** | ~16K | 5 node only | `configs/minimal_gcn_globalpool.yaml` |
 
 ## Quick Start
@@ -22,13 +22,13 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Train the best model (GATv2)
-python main.py --config configs/phase15_globalpool.yaml
+python main.py --config configs/gatv2_globalpool.yaml
 
 # Train the minimal model (GCN)
 python main.py --config configs/minimal_gcn_globalpool.yaml
 
 # Evaluate only (skip training)
-python main.py --config configs/phase15_globalpool.yaml --eval-only
+python main.py --config configs/gatv2_globalpool.yaml --eval-only
 python main.py --config configs/minimal_gcn_globalpool.yaml --eval-only
 ```
 
@@ -73,8 +73,8 @@ GNN_atom_exposure/
 ├── requirements.txt           # Dependencies
 ├── normalizer_train.pkl       # Feature normalization
 ├── configs/                   # Configuration files
-│   ├── phase15_globalpool.yaml          # GATv2 best model (R² = 0.9408)
-│   ├── phase15_globalpool_gaussian.yaml # GATv2 + Gaussian noise regularization
+│   ├── gatv2_globalpool.yaml          # GATv2 best model (R² = 0.9408)
+│   ├── gatv2_globalpool_gaussian.yaml # GATv2 + Gaussian noise regularization
 │   ├── minimal_gcn_globalpool.yaml      # MinimalGCN with global pooling
 │   └── minimal_gcn.yaml                # MinimalGCN without global pooling
 ├── src/                       # Source code
@@ -93,7 +93,7 @@ GNN_atom_exposure/
 │       ├── visualization.py             # Plots (heatmap, error, training curves)
 │       └── data_validation.py           # Dataset integrity checks
 ├── experiments/               # Experiment results
-│   ├── phase15_globalpool/    # GATv2 results and plots
+│   ├── gatv2_globalpool/    # GATv2 results and plots
 │   └── minimal_gcn_globalpool/# MinimalGCN results, plots, and best model checkpoint
 ├── dataset/                   # Dataset (not in git, see docs/DATASET.md)
 └── docs/                      # Documentation
@@ -130,10 +130,10 @@ GNN_atom_exposure/
 
 ```bash
 # Train GATv2 best model
-python main.py --config configs/phase15_globalpool.yaml
+python main.py --config configs/gatv2_globalpool.yaml
 
 # Train with Gaussian noise regularization
-python main.py --config configs/phase15_globalpool_gaussian.yaml
+python main.py --config configs/gatv2_globalpool_gaussian.yaml
 
 # Train MinimalGCN
 python main.py --config configs/minimal_gcn_globalpool.yaml
@@ -146,7 +146,7 @@ python main.py --config configs/minimal_gcn_globalpool.yaml --batch-size 64 --ep
 
 ```bash
 # Evaluate GATv2
-python main.py --config configs/phase15_globalpool.yaml --eval-only
+python main.py --config configs/gatv2_globalpool.yaml --eval-only
 
 # Evaluate MinimalGCN with specific checkpoint
 python main.py --config configs/minimal_gcn_globalpool.yaml --eval-only --checkpoint experiments/minimal_gcn_globalpool/best_model.pt

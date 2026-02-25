@@ -155,10 +155,9 @@ def main(args):
 
     model = create_model(model_config)
     num_params = sum(p.numel() for p in model.parameters())
-    print(f"  Architecture: MinimalGCN")
+    conv_type = getattr(config.model, 'conv_type', 'gcn').upper()
+    print(f"  Architecture: {conv_type}")
     print(f"  Layers: {config.model.num_layers}, Hidden: {config.model.hidden_channels}")
-    if use_aggregated:
-        print(f"  Features: Aggregated (31 numerical + embeddings)")
     input_noise = getattr(config.model, 'input_noise_std', 0.0)
     if input_noise > 0:
         print(f"  Input noise (training only): σ={input_noise}")
@@ -263,15 +262,19 @@ def main(args):
     # Build feature configuration from YAML config
     feature_config = None
     if hasattr(config, 'features'):
+        use_minimal = getattr(config.features, 'use_minimal_features', False)
         feature_config = {
             'use_reduced_features': getattr(config.features, 'use_reduced', False),
-            'include_atom_type': getattr(config.features, 'include_atom_type', False),
+            'include_atom_type': getattr(config.features, 'include_atom_type', True),
             'include_geometric': getattr(config.features, 'include_geometric', True),
             'use_aggregated': False,
             'include_backbone_angles': getattr(config.features, 'include_backbone_angles', False),
-            'use_minimal_features': getattr(config.features, 'use_minimal_features', True),
+            'use_minimal_features': use_minimal,
         }
-        print(f"\nFeature config: MINIMAL (5 geometric features only)")
+        if use_minimal:
+            print(f"\nFeature config: MINIMAL (5 geometric features only)")
+        else:
+            print(f"\nFeature config: {config.model.in_channels} features")
 
     # Dynamic Global Pooling (if enabled) - NEW, recommended approach
     if use_global_pool:

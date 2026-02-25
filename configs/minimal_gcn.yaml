@@ -57,7 +57,7 @@ training:
 
 experiment:
   name: minimal_gcn
-  checkpoint_dir: experiments/minimal_gcn
+  checkpoint_dir: experiments/checkpoints
   log_dir: experiments/minimal_gcn
   save_best: true
   seed: 42

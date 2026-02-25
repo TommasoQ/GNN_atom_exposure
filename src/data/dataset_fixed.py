@@ -585,6 +585,18 @@ class ProteinAtomDataset(Dataset):
         else:
             data = self._load_protein_graph(pdb_id)
 
+        # If minimal mode but cached data has full features, select the 5 minimal ones
+        if self.use_minimal_features and data.x.shape[1] != 5:
+            from src.data.feature_engineering import MINIMAL_GEOMETRIC_INDICES
+            # Geometric block starts after: numerical(24) + atom_types(31) + elements(5) + residues(21) = 81
+            geom_offset = data.x.shape[1] - 8 - 4  # 8 geometric + 4 backbone at the end
+            if data.x.shape[1] == 93:
+                geom_offset = 81  # 24 + 31 + 5 + 21
+            abs_indices = [geom_offset + i for i in MINIMAL_GEOMETRIC_INDICES]
+            data.x = data.x[:, abs_indices]
+            # Zero out edge features (they have 0 importance in minimal mode)
+            data.edge_attr = torch.zeros((data.edge_index.shape[1], 0), dtype=torch.float)
+
         return data
 
     def _load_protein_graph(self, pdb_id: str) -> Data:

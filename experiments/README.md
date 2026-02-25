@@ -9,7 +9,7 @@ experiments/
 ├── README.md                      # This file
 ├── checkpoints/                   # Model checkpoints (not in git)
 ├── logs/                          # Latest training logs and plots
-└── phase15_globalpool/            # Best model results
+└── gatv2_globalpool/            # Best model results
     ├── best_model.pt              # Trained model weights (not in git)
     ├── test_metrics.json          # Test set metrics
     ├── training_curves.png        # Loss and R² over epochs
@@ -34,16 +34,16 @@ experiments/
 
 **Training**: OneCycleLR, 200 epochs (early stopped at 174), Range-Specific Weighted MSE
 
-**Config**: [configs/phase15_globalpool.yaml](../configs/phase15_globalpool.yaml)
+**Config**: [configs/gatv2_globalpool.yaml](../configs/gatv2_globalpool.yaml)
 
 ## Reproduce Results
 
 ```bash
 # Train from scratch
-python main.py --config configs/phase15_globalpool.yaml
+python main.py --config configs/gatv2_globalpool.yaml
 
 # Evaluate only (regenerate plots)
-python main.py --config configs/phase15_globalpool.yaml --eval-only
+python main.py --config configs/gatv2_globalpool.yaml --eval-only
 ```
 
 ## Output Files

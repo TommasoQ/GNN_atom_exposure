@@ -65,10 +65,10 @@ dataset/*.rar
 dataset/processed_backup_noCC/
 dataset/processed/
 dataset/raw/
+dataset/
 
 # Model checkpoints and weights
 experiments/checkpoints/
-*.pt
 
 # Normalizer pickle (generated during training)
 normalizer_train.pkl
