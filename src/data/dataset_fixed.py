@@ -109,6 +109,7 @@ def _process_single_protein(args: tuple) -> str:
         include_atom_type = config['include_atom_type']
         include_geometric = config['include_geometric']
         include_backbone_angles = config['include_backbone_angles']
+        use_minimal_features = config.get('use_minimal_features', False)
 
         protein_dir = os.path.join(root, 'sadic_data', pdb_id)
 
@@ -163,12 +164,17 @@ def _process_single_protein(args: tuple) -> str:
             use_reduced_features=use_reduced_features,
             include_atom_type=include_atom_type,
             include_geometric=include_geometric,
-            include_backbone_angles=include_backbone_angles
+            include_backbone_angles=include_backbone_angles,
+            use_minimal_features=use_minimal_features
         )
         x = torch.tensor(features, dtype=torch.float)
 
         edge_index = torch.tensor(edge_index_np, dtype=torch.long)
-        edge_attr = torch.tensor(edge_features, dtype=torch.float)
+        # Skip edge features in minimal mode (they have 0 importance)
+        if use_minimal_features:
+            edge_attr = torch.zeros((edge_index_np.shape[1], 0), dtype=torch.float)
+        else:
+            edge_attr = torch.tensor(edge_features, dtype=torch.float)
 
         # Extract targets
         depth_dict = depth_indexes[pdb_id]
@@ -251,6 +257,7 @@ class ProteinAtomDataset(Dataset):
         self.include_geometric = self.feature_config.get('include_geometric', True)
         self.use_aggregated = self.feature_config.get('use_aggregated', False)
         self.include_backbone_angles = self.feature_config.get('include_backbone_angles', False)
+        self.use_minimal_features = self.feature_config.get('use_minimal_features', False)
 
         # Load protein list
         protein_csv_path = os.path.join(root, 'protein_sample_5000.csv')
@@ -333,6 +340,11 @@ class ProteinAtomDataset(Dataset):
         # Determine normalizer suffix based on feature mode
         normalizer_suffix = '_aggregated' if self.use_aggregated else ''
 
+        # Minimal mode doesn't need normalization (only geometric features)
+        if self.use_minimal_features:
+            normalize_features = False
+            self.normalize_features = False
+
         if normalize_features:
             if normalizer_path is None:
                 normalizer_path = os.path.join(root, f'normalizer_{split}{normalizer_suffix}.pkl')
@@ -365,6 +377,9 @@ class ProteinAtomDataset(Dataset):
             if self.use_aggregated:
                 dims = get_aggregated_feature_dimensions()
                 config_str = "aggregated=True (31 numerical + embeddings)"
+            elif self.use_minimal_features:
+                dims = get_feature_dimensions(use_minimal_features=True)
+                config_str = "minimal=True (5 geometric features only)"
             else:
                 dims = get_feature_dimensions(
                     use_reduced_features=self.use_reduced_features,
@@ -497,7 +512,8 @@ class ProteinAtomDataset(Dataset):
                 'use_reduced_features': self.use_reduced_features,
                 'include_atom_type': self.include_atom_type,
                 'include_geometric': self.include_geometric,
-                'include_backbone_angles': self.include_backbone_angles
+                'include_backbone_angles': self.include_backbone_angles,
+                'use_minimal_features': self.use_minimal_features
             }
 
             # Create argument tuples for parallel processing
@@ -646,12 +662,17 @@ class ProteinAtomDataset(Dataset):
                 use_reduced_features=self.use_reduced_features,
                 include_atom_type=self.include_atom_type,
                 include_geometric=self.include_geometric,
-                include_backbone_angles=self.include_backbone_angles
+                include_backbone_angles=self.include_backbone_angles,
+                use_minimal_features=self.use_minimal_features
             )
             x = torch.tensor(features, dtype=torch.float)
 
         edge_index = torch.tensor(edge_index_np, dtype=torch.long)
-        edge_attr = torch.tensor(edge_features, dtype=torch.float)  # Now 11-dim
+        # Skip edge features in minimal mode (they have 0 importance)
+        if self.use_minimal_features:
+            edge_attr = torch.zeros((edge_index_np.shape[1], 0), dtype=torch.float)
+        else:
+            edge_attr = torch.tensor(edge_features, dtype=torch.float)  # Now 12-dim
 
         # FIX 4: Proper target matching
         if pdb_id in self.depth_indexes:

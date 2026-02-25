@@ -1,0 +1,63 @@
+# Minimal GCN Model - Simplified Architecture
+# Based on feature importance analysis:
+#   - geom_contact_count_10A has 1.77 importance (200x more than any other feature)
+#   - All 12 edge features have 0.0 importance (completely removed)
+#   - Only 5 geometric features retained (contact_count, dist_to_center, radial_position,
+#     3rd_nearest_dist, std_dist)
+#
+# Expected results:
+#   - R^2: 0.88-0.92 (vs 0.94 with full model)
+#   - Parameters: ~15K (vs ~254K with full model - 94% reduction)
+
+data:
+  root: dataset
+  batch_size: 32
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+features:
+  use_minimal_features: true    # Only 5 geometric features
+  use_aggregated: false
+  use_reduced: false
+  include_atom_type: false      # Excluded (low importance)
+  include_geometric: true       # Only source of features in minimal mode
+  include_backbone_angles: false  # Excluded (low importance)
+
+model:
+  model_type: minimal           # MinimalGCN class
+  in_channels: 5                # 5 minimal geometric features
+  hidden_channels: 64           # Reduced from 128/136
+  num_layers: 2                 # Reduced from 3-4
+  dropout: 0.2
+  edge_dim: 0                   # No edge features (all have 0 importance)
+
+training:
+  num_epochs: 200
+  learning_rate: 5.0e-04
+  weight_decay: 1.0e-04
+  scheduler: one_cycle
+  early_stopping_patience: 50
+  gradient_clip: 1.0
+  use_amp: true
+  cudnn_benchmark: true
+  deterministic: false
+  # OneCycle params
+  max_lr: 0.001
+  warmup_epochs: 30
+  div_factor: 25.0
+  final_div_factor: 10000.0
+  # Weighted Loss (same as best model)
+  weighted_loss: true
+  loss_alpha: 1.5
+  loss_threshold: 0.8
+  loss_power: 1.0
+  early_stopping_metric: r2
+
+experiment:
+  name: minimal_gcn
+  checkpoint_dir: experiments/minimal_gcn
+  log_dir: experiments/minimal_gcn
+  save_best: true
+  seed: 42

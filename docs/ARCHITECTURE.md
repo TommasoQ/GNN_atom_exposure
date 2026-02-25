@@ -174,6 +174,20 @@ Exposure distribution is heavily skewed toward buried atoms. Uniform MSE under-w
 - **PyTorch Geometric**: Fey & Lenssen, "Fast Graph Representation Learning with PyTorch Geometric" (2019)
 - **OneCycleLR**: Smith & Topin, "Super-Convergence" (2019)
 
+## MinimalGCN (Lightweight Alternative)
+
+The MinimalGCN is a streamlined 2-layer GCN that achieves R² ~0.87-0.89 with minimal complexity (~16K parameters). It was derived from the full GATv2 model through systematic ablation.
+
+### Key simplifications
+- **5 geometric features only**: `contact_count_10A`, `dist_to_center`, `radial_position`, `3rd_nearest_dist`, `std_dist`
+- **No edge features**: Ablation showed edge features have 0 importance for this task
+- **GCN instead of GATv2**: Simple GCN matches attention-based performance
+- **2 layers, 64 hidden channels**: Minimal depth and width
+- **Optional gated global pooling**: Same mechanism as the full model
+
+### Usage
+Set `model_type: minimal` in the config YAML and use configs from `configs/minimal_gcn*.yaml`.
+
 ## See Also
 
 - [Dataset Documentation](DATASET.md)

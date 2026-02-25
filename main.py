@@ -23,9 +23,20 @@ from datetime import datetime
 
 
 def save_test_metrics(metrics: dict, config, checkpoint_epoch: int, save_path: str):
-    """Save test metrics to JSON file for permanent record."""
-    # Convert numpy float32 to Python float for JSON serialization
-    serializable_metrics = {k: float(v) for k, v in metrics.items()}
+    """Save test metrics to JSON file for permanent record.
+
+    Metrics dict has structure: {'raw': {...}, 'clamped': {...}, 'diagnostics': {...}}
+    """
+    def convert_to_serializable(d):
+        """Convert numpy types to Python native types for JSON."""
+        return {k: float(v) if hasattr(v, 'item') else v for k, v in d.items()}
+
+    # Handle nested metrics structure (raw/clamped/diagnostics)
+    serializable_metrics = {}
+    for key in ['raw', 'clamped', 'diagnostics']:
+        if key in metrics:
+            serializable_metrics[key] = convert_to_serializable(metrics[key])
+
     output = {
         'timestamp': datetime.now().isoformat(),
         'test_metrics': serializable_metrics,
@@ -131,23 +142,9 @@ def main(args):
     print("GNN PROTEIN ATOM EXPOSURE PREDICTION")
     print("="*60)
 
-    # Check if using aggregated features (need embedding config)
-    use_aggregated = False
-    if hasattr(config, 'features'):
-        use_aggregated = getattr(config.features, 'use_aggregated', False)
-
     # Create model
     print("\nCreating model...")
     model_config = config.model.to_dict()
-
-    # Add embedding parameters if using aggregated features
-    if use_aggregated:
-        model_config['use_embeddings'] = True
-        model_config['num_numerical'] = 31  # Aggregated features produce 31 numerical
-        model_config['num_elements'] = 5    # C, N, O, S, OTHER
-        model_config['num_residues'] = 21   # 20 amino acids + OTHER
-        model_config['element_embed_dim'] = getattr(config.features, 'element_embed_dim', 8)
-        model_config['residue_embed_dim'] = getattr(config.features, 'residue_embed_dim', 11)
 
     # Add dynamic global pooling parameters if enabled
     use_global_pool = getattr(config.model, 'use_global_pool', False)
@@ -158,14 +155,16 @@ def main(args):
 
     model = create_model(model_config)
     num_params = sum(p.numel() for p in model.parameters())
-    conv_type = getattr(config.model, 'conv_type', 'gcn').upper()
-    print(f"  Architecture: {conv_type}")
+    print(f"  Architecture: MinimalGCN")
     print(f"  Layers: {config.model.num_layers}, Hidden: {config.model.hidden_channels}")
     if use_aggregated:
         print(f"  Features: Aggregated (31 numerical + embeddings)")
     input_noise = getattr(config.model, 'input_noise_std', 0.0)
     if input_noise > 0:
         print(f"  Input noise (training only): σ={input_noise}")
+    if use_global_pool:
+        pool_type = getattr(config.model, 'global_pool_type', 'mean')
+        print(f"  Global Pooling: ENABLED ({pool_type})")
     print(f"  Parameters: {num_params:,}")
     model.to(device)
 
@@ -261,34 +260,18 @@ def main(args):
         use_amp=use_amp
     )
 
-    # Build feature configuration from YAML config (use_aggregated already set above)
+    # Build feature configuration from YAML config
     feature_config = None
     if hasattr(config, 'features'):
-        include_backbone_angles = getattr(config.features, 'include_backbone_angles', False)
         feature_config = {
             'use_reduced_features': getattr(config.features, 'use_reduced', False),
-            'include_atom_type': getattr(config.features, 'include_atom_type', True),
+            'include_atom_type': getattr(config.features, 'include_atom_type', False),
             'include_geometric': getattr(config.features, 'include_geometric', True),
-            'use_aggregated': use_aggregated,
-            'include_backbone_angles': include_backbone_angles,
+            'use_aggregated': False,
+            'include_backbone_angles': getattr(config.features, 'include_backbone_angles', False),
+            'use_minimal_features': getattr(config.features, 'use_minimal_features', True),
         }
-        if use_aggregated:
-            print(f"\nFeature config: aggregated transforms (31 numerical + embeddings)")
-        elif include_backbone_angles:
-            print(f"\nFeature config: standard features + backbone angles (phi/psi)")
-        else:
-            print(f"\nFeature config: {feature_config}")
-
-    # Global node transform (if enabled) - LEGACY, prefer global pooling
-    global_node_transform = None
-    use_global_node = getattr(config.features, 'use_global_node', False)
-    if use_global_node:
-        from src.data.global_node_transform import AddGlobalNode
-        aggregation = getattr(config.features, 'global_node_aggregation', 'mean')
-        global_node_transform = AddGlobalNode(aggregation=aggregation)
-        print(f"Global Node (virtual): ENABLED (aggregation={aggregation})")
-    else:
-        print(f"Global Node (virtual): DISABLED")
+        print(f"\nFeature config: MINIMAL (5 geometric features only)")
 
     # Dynamic Global Pooling (if enabled) - NEW, recommended approach
     if use_global_pool:
@@ -305,14 +288,12 @@ def main(args):
         train_dataset = ProteinAtomDataset(
             root=config.data.root,
             split='train',
-            feature_config=feature_config,
-            transform=global_node_transform
+            feature_config=feature_config
         )
         val_dataset = ProteinAtomDataset(
             root=config.data.root,
             split='val',
-            feature_config=feature_config,
-            transform=global_node_transform
+            feature_config=feature_config
         )
         print(f"  Train: {len(train_dataset)} proteins")
         print(f"  Val:   {len(val_dataset)} proteins")
@@ -382,8 +363,7 @@ def main(args):
     test_dataset = ProteinAtomDataset(
         root=config.data.root,
         split='test',
-        feature_config=feature_config,
-        transform=global_node_transform
+        feature_config=feature_config
     )
     print(f"  Test:  {len(test_dataset)} proteins")
 
@@ -397,14 +377,15 @@ def main(args):
 
     print("\nEvaluating on test set...")
     print("-" * 60)
-    # evaluate_model returns metrics (raw + clamped) and predictions
+    # evaluate_model returns: metrics dict, y_true, y_pred (raw), y_pred_clamped
+    # metrics has 'raw', 'clamped', and 'diagnostics' keys
     test_metrics, y_true, y_pred, y_pred_clamped = evaluate_model(trainer.model, test_loader, device)
     print_metrics(test_metrics)
 
     # Get checkpoint epoch for logging
     checkpoint_epoch = len(trainer.train_losses) if trainer.train_losses else 0
 
-    # Always save test metrics to JSON
+    # Always save test metrics to JSON (includes both raw and clamped)
     save_test_metrics(
         test_metrics['clamped'],
         config,
@@ -424,7 +405,7 @@ def main(args):
             save_path=os.path.join(config.experiment.log_dir, 'training_curves.png')
         )
 
-    # 2a. Predictions vs Actual - RAW (shows negative predictions)
+    # Raw predictions plot (shows negative predictions for diagnosis)
     plot_predictions(
         y_true,
         y_pred,
@@ -433,7 +414,7 @@ def main(args):
         show_zero_line=True
     )
 
-    # 2b. Predictions vs Actual - CLAMPED (final, exposure >= 0)
+    # Clamped predictions plot (final, exposure >= 0)
     plot_predictions(
         y_true,
         y_pred_clamped,
@@ -441,14 +422,14 @@ def main(args):
         title='Predicted vs True (Clamped)'
     )
 
-    # 3. Error distribution histogram (using clamped predictions)
+    # Error distribution histogram (using clamped predictions)
     plot_error_distribution(
         y_true,
         y_pred_clamped,
         save_path=os.path.join(config.experiment.log_dir, 'error_distribution.png')
     )
 
-    # 4. Error by exposure range (using clamped predictions)
+    # Error by exposure range (using clamped predictions)
     error_stats = plot_error_by_exposure_range(
         y_true,
         y_pred_clamped,
@@ -471,7 +452,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train GNN for Protein Atom Exposure Prediction')
 
     # Configuration
-    parser.add_argument('--config', type=str, default='configs/config.yaml',
+    parser.add_argument('--config', type=str, default='configs/minimal_gcn_globalpool.yaml',
                         help='Path to config file')
 
     # Training parameters

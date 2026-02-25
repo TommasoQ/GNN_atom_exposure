@@ -33,7 +33,8 @@
       "Bash(c:\\\\Users\\\\Edoardo\\\\GNN_protein_exposure\\\\GNN_atom_exposure\\\\.venv\\\\Scripts\\\\python.exe:*)",
       "Bash(wc:*)",
       "Bash(du:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(source:*)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Edoardo\\GNN_protein_exposure\\GNN_atom_exposure\\experiments"

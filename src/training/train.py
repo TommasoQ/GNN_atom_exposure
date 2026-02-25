@@ -556,19 +556,3 @@ def train_model(
     return trainer
 
 
-if __name__ == '__main__':
-    from src.data.dataset import ProteinAtomDataset
-    from src.models.gnn import AtomExposureGNN
-
-    # Load dataset
-    train_dataset = ProteinAtomDataset(root='dataset/', split='train')
-    val_dataset = ProteinAtomDataset(root='dataset/', split='val')
-
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
-
-    # Create model
-    model = AtomExposureGNN(in_channels=80, hidden_channels=128, num_layers=3)
-
-    # Train
-    trainer = train_model(model, train_loader, val_loader, num_epochs=10)

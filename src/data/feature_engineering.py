@@ -126,6 +126,28 @@ REDUCED_GEOMETRIC_NAMES = ['geom_min_dist', 'geom_std_dist', 'geom_radial_positi
 
 
 # ============================================================================
+# MINIMAL FEATURES (for simplified model)
+# ============================================================================
+# Based on feature importance analysis:
+# - geom_contact_count_10A: 1.7742 importance (DOMINANT - 200x more than any other)
+# - geom_dist_to_center: 0.0085
+# - geom_radial_position: 0.0081
+# - geom_3rd_nearest_dist: 0.0048
+# - geom_std_dist: 0.0025
+# All other features have negligible importance (<0.002)
+# All 12 edge features have exactly 0.0 importance
+
+MINIMAL_GEOMETRIC_INDICES = [7, 5, 6, 4, 3]  # contact_count, dist_to_center, radial_pos, 3rd_nearest, std_dist
+MINIMAL_GEOMETRIC_NAMES = [
+    'geom_contact_count_10A',   # 1.7742 importance (CRITICAL)
+    'geom_dist_to_center',      # 0.0085 importance
+    'geom_radial_position',     # 0.0081 importance
+    'geom_3rd_nearest_dist',    # 0.0048 importance
+    'geom_std_dist',            # 0.0025 importance
+]
+
+
+# ============================================================================
 # CATEGORICAL ENCODING
 # ============================================================================
 
@@ -384,7 +406,8 @@ def extract_all_features(nodes_df: pd.DataFrame,
                          use_reduced_features: bool = False,
                          include_atom_type: bool = True,
                          include_geometric: bool = True,
-                         include_backbone_angles: bool = False) -> Tuple[np.ndarray, List[str]]:
+                         include_backbone_angles: bool = False,
+                         use_minimal_features: bool = False) -> Tuple[np.ndarray, List[str]]:
     """
     Extract and combine all features: numerical, categorical, geometric, and backbone angles.
 
@@ -398,12 +421,29 @@ def extract_all_features(nodes_df: pd.DataFrame,
         include_atom_type: Include atom type one-hot encoding (31 features)
         include_geometric: Include geometric features
         include_backbone_angles: Include backbone dihedral angles (phi/psi as sin/cos, 4 features)
+        use_minimal_features: Use only 5 essential geometric features (for minimal model)
 
     Returns:
         Tuple of (features_array, feature_names)
     """
     features_list = []
     feature_names = []
+
+    # MINIMAL MODE: Only extract 5 essential geometric features
+    if use_minimal_features:
+        coords = nodes_df[['x_coord', 'y_coord', 'z_coord']].values
+        geometric_features = compute_geometric_features(coords, edge_index, edge_distances)
+
+        # Select only the minimal feature indices
+        minimal_features = geometric_features[:, MINIMAL_GEOMETRIC_INDICES]
+        features_list.append(minimal_features)
+        feature_names.extend(MINIMAL_GEOMETRIC_NAMES)
+
+        # Concatenate and return early
+        all_features = np.concatenate(features_list, axis=1)
+        return all_features, feature_names
+
+    # STANDARD MODE: Extract all requested features
 
     # 1. Extract numerical features
     numerical_feature_list = REDUCED_NUMERICAL_FEATURES if use_reduced_features else SELECTED_NUMERICAL_FEATURES
@@ -463,7 +503,8 @@ def extract_all_features(nodes_df: pd.DataFrame,
 def get_feature_dimensions(use_reduced_features: bool = False,
                            include_atom_type: bool = True,
                            include_geometric: bool = True,
-                           include_backbone_angles: bool = False) -> Dict[str, int]:
+                           include_backbone_angles: bool = False,
+                           use_minimal_features: bool = False) -> Dict[str, int]:
     """
     Get the dimensions of each feature group based on configuration.
 
@@ -472,10 +513,23 @@ def get_feature_dimensions(use_reduced_features: bool = False,
         include_atom_type: Include atom type one-hot encoding
         include_geometric: Include geometric features
         include_backbone_angles: Include backbone dihedral angles (phi/psi as sin/cos)
+        use_minimal_features: Use only 5 essential geometric features (for minimal model)
 
     Returns:
         Dictionary with feature group names and their dimensions
     """
+    # Minimal mode: only 5 geometric features
+    if use_minimal_features:
+        return {
+            'numerical': 0,
+            'atom_types': 0,
+            'elements': 0,
+            'residues': 0,
+            'geometric': len(MINIMAL_GEOMETRIC_NAMES),
+            'backbone_angles': 0,
+            'total': len(MINIMAL_GEOMETRIC_NAMES)
+        }
+
     numerical_count = len(REDUCED_NUMERICAL_FEATURES) if use_reduced_features else len(SELECTED_NUMERICAL_FEATURES)
     atom_type_count = len(STANDARD_ATOM_TYPES) if include_atom_type else 0
     element_count = len(STANDARD_ELEMENTS)
