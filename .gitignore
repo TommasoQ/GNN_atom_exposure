@@ -32,10 +32,6 @@ env.bak/
 venv.bak/
 .venv/
 
-# PyTorch
-*.pth
-*.pt
-
 # Jupyter Notebook
 .ipynb_checkpoints
 *.ipynb_checkpoints
@@ -64,7 +60,16 @@ dataset/*.zip
 dataset/*.7z
 dataset/*.tar.gz
 dataset/*.rar
-dataset/processed_backup/
+dataset/processed_backup_noCC/
+dataset/processed/
+dataset/raw/
+
+# Model checkpoints and weights
+experiments/checkpoints/
+*.pt
+
+# Normalizer pickle (generated during training)
+normalizer_train.pkl
 
 # Temporary files
 tmp/

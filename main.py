@@ -163,6 +163,9 @@ def main(args):
     print(f"  Layers: {config.model.num_layers}, Hidden: {config.model.hidden_channels}")
     if use_aggregated:
         print(f"  Features: Aggregated (31 numerical + embeddings)")
+    input_noise = getattr(config.model, 'input_noise_std', 0.0)
+    if input_noise > 0:
+        print(f"  Input noise (training only): σ={input_noise}")
     print(f"  Parameters: {num_params:,}")
     model.to(device)
 
@@ -394,8 +397,8 @@ def main(args):
 
     print("\nEvaluating on test set...")
     print("-" * 60)
-    # evaluate_model now returns metrics and predictions to avoid a second pass
-    test_metrics, y_true, y_pred = evaluate_model(trainer.model, test_loader, device)
+    # evaluate_model returns metrics (raw + clamped) and predictions
+    test_metrics, y_true, y_pred, y_pred_clamped = evaluate_model(trainer.model, test_loader, device)
     print_metrics(test_metrics)
 
     # Get checkpoint epoch for logging
@@ -403,7 +406,7 @@ def main(args):
 
     # Always save test metrics to JSON
     save_test_metrics(
-        test_metrics,
+        test_metrics['clamped'],
         config,
         checkpoint_epoch,
         save_path=os.path.join(config.experiment.log_dir, 'test_metrics.json')
@@ -421,24 +424,34 @@ def main(args):
             save_path=os.path.join(config.experiment.log_dir, 'training_curves.png')
         )
 
-    # 2. Predictions vs Actual scatter plot
+    # 2a. Predictions vs Actual - RAW (shows negative predictions)
     plot_predictions(
         y_true,
         y_pred,
-        save_path=os.path.join(config.experiment.log_dir, 'predictions_vs_actual.png')
+        save_path=os.path.join(config.experiment.log_dir, 'predictions_raw.png'),
+        title='Predicted vs True (Raw)',
+        show_zero_line=True
     )
 
-    # 3. Error distribution histogram
+    # 2b. Predictions vs Actual - CLAMPED (final, exposure >= 0)
+    plot_predictions(
+        y_true,
+        y_pred_clamped,
+        save_path=os.path.join(config.experiment.log_dir, 'predictions_clamped.png'),
+        title='Predicted vs True (Clamped)'
+    )
+
+    # 3. Error distribution histogram (using clamped predictions)
     plot_error_distribution(
         y_true,
-        y_pred,
+        y_pred_clamped,
         save_path=os.path.join(config.experiment.log_dir, 'error_distribution.png')
     )
 
-    # 4. Error by exposure range (key diagnostic)
+    # 4. Error by exposure range (using clamped predictions)
     error_stats = plot_error_by_exposure_range(
         y_true,
-        y_pred,
+        y_pred_clamped,
         save_path=os.path.join(config.experiment.log_dir, 'error_by_exposure_range.png')
     )
 

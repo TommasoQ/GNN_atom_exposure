@@ -55,36 +55,49 @@ def plot_predictions(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     save_path: Optional[str] = None,
-    title: str = 'Predicted vs True Atom Exposure'
+    title: str = 'Predicted vs True Atom Exposure',
+    show_zero_line: bool = False
 ):
     """
-    Plot predicted vs true values.
+    Plot predicted vs true values as a 2D density heatmap.
 
     Args:
         y_true (np.ndarray): True values
         y_pred (np.ndarray): Predicted values
         save_path (str, optional): Path to save figure
         title (str): Plot title
+        show_zero_line (bool): If True, show y=0 line and count negatives (for raw predictions)
     """
+    from sklearn.metrics import r2_score
+    from matplotlib.colors import LogNorm
+
     fig, ax = plt.subplots(figsize=(8, 8))
 
-    # Scatter plot
-    ax.scatter(y_true, y_pred, alpha=0.5, s=10)
-
-    # Perfect prediction line
+    # 2D histogram heatmap
     min_val = min(y_true.min(), y_pred.min())
     max_val = max(y_true.max(), y_pred.max())
-    ax.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+    h = ax.hist2d(y_true, y_pred, bins=200, cmap='inferno',
+                  norm=LogNorm(), range=[[min_val, max_val], [min_val, max_val]])
+    plt.colorbar(h[3], ax=ax, label='Count')
 
-    # Calculate R²
-    from sklearn.metrics import r2_score
+    # Perfect prediction line
+    ax.plot([min_val, max_val], [min_val, max_val], 'w--', linewidth=2, alpha=0.8, label='Perfect Prediction')
+
+    # Show y=0 line for raw predictions (to highlight negatives)
+    if show_zero_line:
+        ax.axhline(y=0, color='cyan', linestyle=':', linewidth=1.5, alpha=0.8, label='y=0')
+        n_negative = np.sum(y_pred < 0)
+        if n_negative > 0:
+            ax.text(0.02, 0.98, f'Negative: {n_negative} ({n_negative/len(y_pred)*100:.1f}%)',
+                    transform=ax.transAxes, va='top', fontsize=10, color='white',
+                    bbox=dict(boxstyle='round', facecolor='black', alpha=0.6))
+
     r2 = r2_score(y_true, y_pred)
-
     ax.set_xlabel('True Exposure')
     ax.set_ylabel('Predicted Exposure')
     ax.set_title(f'{title}\nR² = {r2:.4f}')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    ax.legend(loc='lower right', facecolor='black', edgecolor='white',
+              labelcolor='white', framealpha=0.6)
 
     plt.tight_layout()
 

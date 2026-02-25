@@ -28,6 +28,7 @@ class AtomExposureGNN(nn.Module):
         use_global_pool (bool): Enable dynamic global pooling
         global_pool_type (str): Type of pooling ('mean', 'max', 'both')
         global_pool_layers (str): Where to inject ('every', 'middle', 'last')
+        input_noise_std (float): Gaussian noise std added to input features during training (0 = disabled)
     """
 
     def __init__(
@@ -46,7 +47,8 @@ class AtomExposureGNN(nn.Module):
         residue_embed_dim: int = 11,
         use_global_pool: bool = False,
         global_pool_type: str = 'mean',
-        global_pool_layers: str = 'every'
+        global_pool_layers: str = 'every',
+        input_noise_std: float = 0.0
     ):
         super().__init__()
 
@@ -56,6 +58,9 @@ class AtomExposureGNN(nn.Module):
         self.dropout = dropout
         self.conv_type = conv_type
         self.edge_dim = edge_dim
+
+        # Input noise (training-only regularization)
+        self.input_noise_std = input_noise_std
 
         # Global pooling configuration
         self.use_global_pool = use_global_pool
@@ -191,6 +196,10 @@ class AtomExposureGNN(nn.Module):
             element_embed = self.element_embedding(element_idx)
             residue_embed = self.residue_embedding(residue_idx)
             x = torch.cat([x, element_embed, residue_embed], dim=-1)
+
+        # Gaussian noise injection (training only)
+        if self.training and self.input_noise_std > 0:
+            x = x + torch.randn_like(x) * self.input_noise_std
 
         # Input projection
         x = self.input_proj(x)
@@ -357,7 +366,8 @@ def create_model(config: dict) -> nn.Module:
             residue_embed_dim=config.get('residue_embed_dim', 11),
             use_global_pool=config.get('use_global_pool', False),
             global_pool_type=config.get('global_pool_type', 'mean'),
-            global_pool_layers=config.get('global_pool_layers', 'every')
+            global_pool_layers=config.get('global_pool_layers', 'every'),
+            input_noise_std=config.get('input_noise_std', 0.0)
         )
     elif model_type == 'simple':
         return SimpleGCN(
