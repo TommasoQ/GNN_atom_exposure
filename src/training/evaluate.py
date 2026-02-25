@@ -165,18 +165,3 @@ def print_metrics(metrics: Dict[str, Dict[str, float]]):
     print("=" * width + "\n")
 
 
-if __name__ == '__main__':
-    from src.data.dataset import ProteinAtomDataset
-    from src.models.gnn import AtomExposureGNN
-
-    # Load test dataset
-    test_dataset = ProteinAtomDataset(root='dataset/', split='test')
-    test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
-
-    # Load model (assuming checkpoint exists)
-    model = AtomExposureGNN(in_channels=80, hidden_channels=128, num_layers=3)
-    # model.load_state_dict(torch.load('experiments/checkpoints/best_model.pt')['model_state_dict'])
-
-    # Evaluate (returns metrics, y_true, y_pred, y_pred_clamped)
-    metrics, y_true, y_pred, y_pred_clamped = evaluate_model(model, test_loader)
-    print_metrics(metrics)

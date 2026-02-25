@@ -65,7 +65,7 @@ training:
 
 experiment:
   name: minimal_gcn_globalpool
-  checkpoint_dir: experiments/baselines/minimal_gcn_globalpool
-  log_dir: experiments/baselines/minimal_gcn_globalpool
+  checkpoint_dir: experiments/minimal_gcn_globalpool
+  log_dir: experiments/minimal_gcn_globalpool
   save_best: true
   seed: 42

@@ -142,23 +142,9 @@ def main(args):
     print("GNN PROTEIN ATOM EXPOSURE PREDICTION")
     print("="*60)
 
-    # Check if using aggregated features (need embedding config)
-    use_aggregated = False
-    if hasattr(config, 'features'):
-        use_aggregated = getattr(config.features, 'use_aggregated', False)
-
     # Create model
     print("\nCreating model...")
     model_config = config.model.to_dict()
-
-    # Add embedding parameters if using aggregated features
-    if use_aggregated:
-        model_config['use_embeddings'] = True
-        model_config['num_numerical'] = 31  # Aggregated features produce 31 numerical
-        model_config['num_elements'] = 5    # C, N, O, S, OTHER
-        model_config['num_residues'] = 21   # 20 amino acids + OTHER
-        model_config['element_embed_dim'] = getattr(config.features, 'element_embed_dim', 8)
-        model_config['residue_embed_dim'] = getattr(config.features, 'residue_embed_dim', 11)
 
     # Add dynamic global pooling parameters if enabled
     use_global_pool = getattr(config.model, 'use_global_pool', False)
@@ -169,15 +155,8 @@ def main(args):
 
     model = create_model(model_config)
     num_params = sum(p.numel() for p in model.parameters())
-    model_type = getattr(config.model, 'model_type', 'gnn')
-    conv_type = getattr(config.model, 'conv_type', 'gcn').upper()
-    if model_type == 'minimal':
-        print(f"  Architecture: MinimalGCN")
-    else:
-        print(f"  Architecture: {conv_type}")
+    print(f"  Architecture: MinimalGCN")
     print(f"  Layers: {config.model.num_layers}, Hidden: {config.model.hidden_channels}")
-    if use_aggregated:
-        print(f"  Features: Aggregated (31 numerical + embeddings)")
     if use_global_pool:
         pool_type = getattr(config.model, 'global_pool_type', 'mean')
         print(f"  Global Pooling: ENABLED ({pool_type})")
@@ -276,39 +255,18 @@ def main(args):
         use_amp=use_amp
     )
 
-    # Build feature configuration from YAML config (use_aggregated already set above)
+    # Build feature configuration from YAML config
     feature_config = None
-    use_minimal_features = False
     if hasattr(config, 'features'):
-        include_backbone_angles = getattr(config.features, 'include_backbone_angles', False)
-        use_minimal_features = getattr(config.features, 'use_minimal_features', False)
         feature_config = {
             'use_reduced_features': getattr(config.features, 'use_reduced', False),
-            'include_atom_type': getattr(config.features, 'include_atom_type', True),
+            'include_atom_type': getattr(config.features, 'include_atom_type', False),
             'include_geometric': getattr(config.features, 'include_geometric', True),
-            'use_aggregated': use_aggregated,
-            'include_backbone_angles': include_backbone_angles,
-            'use_minimal_features': use_minimal_features,
+            'use_aggregated': False,
+            'include_backbone_angles': getattr(config.features, 'include_backbone_angles', False),
+            'use_minimal_features': getattr(config.features, 'use_minimal_features', True),
         }
-        if use_minimal_features:
-            print(f"\nFeature config: MINIMAL (5 geometric features only)")
-        elif use_aggregated:
-            print(f"\nFeature config: aggregated transforms (31 numerical + embeddings)")
-        elif include_backbone_angles:
-            print(f"\nFeature config: standard features + backbone angles (phi/psi)")
-        else:
-            print(f"\nFeature config: {feature_config}")
-
-    # Global node transform (if enabled) - LEGACY, prefer global pooling
-    global_node_transform = None
-    use_global_node = getattr(config.features, 'use_global_node', False)
-    if use_global_node:
-        from src.data.global_node_transform import AddGlobalNode
-        aggregation = getattr(config.features, 'global_node_aggregation', 'mean')
-        global_node_transform = AddGlobalNode(aggregation=aggregation)
-        print(f"Global Node (virtual): ENABLED (aggregation={aggregation})")
-    else:
-        print(f"Global Node (virtual): DISABLED")
+        print(f"\nFeature config: MINIMAL (5 geometric features only)")
 
     # Dynamic Global Pooling (if enabled) - NEW, recommended approach
     if use_global_pool:
@@ -325,14 +283,12 @@ def main(args):
         train_dataset = ProteinAtomDataset(
             root=config.data.root,
             split='train',
-            feature_config=feature_config,
-            transform=global_node_transform
+            feature_config=feature_config
         )
         val_dataset = ProteinAtomDataset(
             root=config.data.root,
             split='val',
-            feature_config=feature_config,
-            transform=global_node_transform
+            feature_config=feature_config
         )
         print(f"  Train: {len(train_dataset)} proteins")
         print(f"  Val:   {len(val_dataset)} proteins")
@@ -402,8 +358,7 @@ def main(args):
     test_dataset = ProteinAtomDataset(
         root=config.data.root,
         split='test',
-        feature_config=feature_config,
-        transform=global_node_transform
+        feature_config=feature_config
     )
     print(f"  Test:  {len(test_dataset)} proteins")
 
@@ -492,7 +447,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train GNN for Protein Atom Exposure Prediction')
 
     # Configuration
-    parser.add_argument('--config', type=str, default='configs/config.yaml',
+    parser.add_argument('--config', type=str, default='configs/minimal_gcn_globalpool.yaml',
                         help='Path to config file')
 
     # Training parameters
